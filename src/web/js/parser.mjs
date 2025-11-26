@@ -96,11 +96,12 @@ export function parseAnalysisResult(result) {
 /**
  * Clean error message by removing [line:column] prefix
  * Example: "[193:20] Found TokenType.kDot..." -> "Found TokenType.kDot..."
+ * Also handles spaces: "[ 193:20 ] Found..." -> "Found..."
  */
 export function cleanErrorMessage(message) {
     if (!message) return message;
-    // Remove [line:column] prefix
-    return message.replace(/^\[\d+:\d+\]\s*/, '');
+    // Remove [line:column] prefix (with or without spaces)
+    return message.replace(/^\[\s*\d+\s*:\s*\d+\s*\]\s*/, '');
 }
 
 /**
@@ -161,6 +162,16 @@ export function extractErrors(stderr) {
                 message: trimmed,
                 line: trimmed,
                 isContext: true
+            });
+        }
+        // Catch any other non-empty line as a potential error message
+        // This ensures we don't miss error messages with unexpected formats
+        else if (trimmed.length > 0) {
+            errors.push({
+                type: 'error',
+                message: trimmed,
+                line: trimmed,
+                isContext: false
             });
         }
     }
