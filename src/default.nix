@@ -19,12 +19,15 @@ in {
       dart
     ];
     
+    unpackPhase = ''
+      # Copy source to a writable location
+      cp -r $src ./source
+      chmod -R u+w ./source
+      cd ./source
+    '';
+    
     buildPhase = ''
       export HOME=$TMPDIR
-      
-      # Copy source to a writable location
-      cp -r $src/* .
-      chmod -R u+w .
       
       # Get dependencies
       dart pub get
@@ -57,12 +60,15 @@ in {
       dart
     ];
     
+    unpackPhase = ''
+      # Copy source to a writable location
+      cp -r $src ./source
+      chmod -R u+w ./source
+      cd ./source
+    '';
+    
     buildPhase = ''
       export HOME=$TMPDIR
-      
-      # Copy source to a writable location
-      cp -r $src/* .
-      chmod -R u+w .
       
       # Get dependencies
       dart pub get
