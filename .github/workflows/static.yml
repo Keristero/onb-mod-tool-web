@@ -32,16 +32,71 @@ jobs:
           submodules: recursive
           ssh-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
       
-      # Only build WASM on manual workflow dispatch
+      - name: Check version and decide whether to build
+        id: version_check
+        run: |
+          # Extract version from pubspec.yaml in the Dart tool submodule
+          PUBSPEC_VERSION=$(grep '^version:' src/DartLangModTool-master/pubspec.yaml | sed 's/version: *//' | tr -d '\r\n')
+          
+          if [ -z "$PUBSPEC_VERSION" ]; then
+            echo "Error: Could not extract version from pubspec.yaml"
+            exit 1
+          fi
+          
+          if ! echo "$PUBSPEC_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "Error: Version must be in semver format (e.g., 1.2.3), got: $PUBSPEC_VERSION"
+            exit 1
+          fi
+          
+          echo "Pubspec version: $PUBSPEC_VERSION"
+          
+          # Get latest version from index.json if it exists
+          if [ -f src/web/versions/index.json ]; then
+            LATEST_VERSION=$(jq -r 'map(select(.latest == true)) | .[0].version // "v0.0.0"' src/web/versions/index.json | sed 's/^v//')
+            echo "Latest built version: $LATEST_VERSION"
+          else
+            LATEST_VERSION="0.0.0"
+            echo "No index.json found, will build first version"
+          fi
+          
+          # Compare versions using sort -V (version sort)
+          SHOULD_BUILD="false"
+          if [ "$PUBSPEC_VERSION" != "$LATEST_VERSION" ]; then
+            HIGHER=$(printf "%s\n%s" "$PUBSPEC_VERSION" "$LATEST_VERSION" | sort -V | tail -n1)
+            if [ "$HIGHER" = "$PUBSPEC_VERSION" ]; then
+              SHOULD_BUILD="true"
+              echo "✓ New version detected: $PUBSPEC_VERSION > $LATEST_VERSION"
+            else
+              echo "✗ Pubspec version ($PUBSPEC_VERSION) is not higher than latest ($LATEST_VERSION)"
+            fi
+          else
+            echo "✗ Versions match, no build needed"
+          fi
+          
+          # Override: always build on manual workflow_dispatch
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SHOULD_BUILD="true"
+            echo "⚠ Manual trigger: forcing build regardless of version"
+          fi
+          
+          echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+          echo "VERSION=$PUBSPEC_VERSION" >> $GITHUB_ENV
+      
       - name: Install mise
-        if: github.event_name == 'workflow_dispatch'
+        if: steps.version_check.outputs.should_build == 'true'
         uses: jdx/mise-action@v2
         with:
           install: true
           cache: true
       
+      - name: Build WASM module
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          cd src
+          mise run build:web
+      
       - name: Get version from pubspec.yaml
-        if: github.event_name == 'workflow_dispatch'
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           # Extract version from pubspec.yaml in the Dart tool submodule
           VERSION=$(grep '^version:' src/DartLangModTool-master/pubspec.yaml | sed 's/version: *//' | tr -d '\r\n')
@@ -66,7 +121,7 @@ jobs:
           mise run build:web
       
       - name: Verify build artifacts
-        if: github.event_name == 'workflow_dispatch'
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           cd src
           if [ ! -f web/versions/latest/onb_mod_file.wasm ]; then
@@ -88,7 +143,7 @@ jobs:
           fi
       
       - name: Create versioned directory
-        if: github.event_name == 'workflow_dispatch'
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           cd src/web/versions
           
@@ -113,7 +168,7 @@ jobs:
           sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" latest/metadata.json
       
       - name: Update version index
-        if: github.event_name == 'workflow_dispatch'
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           cd src/web/versions
           
@@ -148,7 +203,7 @@ jobs:
           cat index.json
       
       - name: Commit new version
-        if: github.event_name == 'workflow_dispatch'
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           # Configure git to use HTTPS with token instead of SSH
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
@@ -164,7 +219,7 @@ jobs:
           git push
       
       - name: Generate build summary
-        if: github.event_name == 'workflow_dispatch'
+        if: steps.version_check.outputs.should_build == 'true'
         run: |
           cd src
           WASM_SIZE=$(stat -c%s web/versions/latest/onb_mod_file.wasm | numfmt --to=iec-i --suffix=B)
