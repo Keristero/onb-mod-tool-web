@@ -38,6 +38,14 @@ export default class FileBrowserTab extends BaseTab {
         if (mod.result?.stderr) {
             this.errorManager.parseErrors(mod.result.stderr);
         }
+        
+        // Clear previous file selection
+        this.selectedFile = null;
+        
+        // Clear preview
+        const headerEl = this.querySelector('#preview-filename');
+        if (headerEl) headerEl.textContent = 'Select a file';
+        this.setHTML('#file-preview', '');
     }
     
     render() {
@@ -99,7 +107,7 @@ export default class FileBrowserTab extends BaseTab {
         if (node.type === 'file') {
             const icon = this.getFileIcon(node.name);
             return `
-                <div class="file-tree-item" data-path="${node.path}" style="padding-left: ${level * 20}px">
+                <div class="file-tree-item" data-path="${node.path}" style="padding-left: ${level * 10}px" title="${node.path}">
                     ${icon} ${node.name}
                 </div>
             `;
@@ -115,7 +123,7 @@ export default class FileBrowserTab extends BaseTab {
         }
         
         return `
-            <div class="file-tree-folder" style="padding-left: ${level * 20}px">
+            <div class="file-tree-folder" style="padding-left: ${level * 10}px">
                 <div class="folder-header">📁 ${node.name}</div>
                 <div class="folder-children">${childrenHtml}</div>
             </div>

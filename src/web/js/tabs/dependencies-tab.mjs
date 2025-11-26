@@ -75,6 +75,12 @@ export default class DependenciesTab extends BaseTab {
     }
     
     buildGraph() {
+        // Clear previous graph when in single-mod view and switching mods
+        if (this.showOnlyCurrent && this.svg && this.simulation) {
+            this.svg.selectAll('*').remove();
+            this.simulation.stop();
+        }
+        
         // Extract dependency data
         const nodes = [];
         const links = [];
@@ -481,6 +487,19 @@ export default class DependenciesTab extends BaseTab {
     }
     
     clear() {
-        // Keep allMods for aggregated view
+        // Clear the graph visualization
+        if (this.svg) {
+            this.svg.selectAll('*').remove();
+        }
+        if (this.simulation) {
+            this.simulation.stop();
+        }
+        
+        // Reset state
+        this.allMods = [];
+        this.currentMod = null;
+        
+        // Clear info panel
+        this.setHTML('#graph-info', '');
     }
 }

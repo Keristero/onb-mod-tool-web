@@ -27,12 +27,14 @@ body {
     background: var(--bg-color);
     color: var(--text-color);
     line-height: 1.6;
+    overflow: hidden;
 }
 
 .container {
-    min-height: 100vh;
+    height: 100vh;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 /* Header */
@@ -86,21 +88,22 @@ header h1 {
 /* Main Content */
 main {
     flex: 1;
-    max-width: 1400px;
     width: 100%;
-    margin: 0 auto;
-    padding: 2rem;
+    padding: 1rem;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 /* Upload Section */
 .upload-section {
-    margin-bottom: 2rem;
+    margin-bottom: 1rem;
 }
 
 .drop-zone {
     border: 2px dashed var(--border-color);
     border-radius: 8px;
-    padding: 3rem;
+    padding: 2rem;
     text-align: center;
     cursor: pointer;
     transition: all 0.3s ease;
@@ -118,16 +121,16 @@ main {
 }
 
 .upload-icon {
-    width: 64px;
-    height: 64px;
-    margin: 0 auto 1rem;
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 0.5rem;
     color: var(--primary-color);
 }
 
 .drop-zone-text {
-    font-size: 1.125rem;
+    font-size: 1rem;
     font-weight: 500;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
 }
 
 .drop-zone-hint {
@@ -139,8 +142,9 @@ main {
 .main-content {
     display: grid;
     grid-template-columns: 280px 1fr;
-    gap: 1.5rem;
-    min-height: 600px;
+    gap: 1rem;
+    flex: 1;
+    overflow: hidden;
 }
 
 /* Sidebar */
@@ -149,8 +153,6 @@ main {
     border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 1rem;
-    height: fit-content;
-    max-height: calc(100vh - 200px);
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -208,8 +210,7 @@ main {
 .mod-list {
     flex: 1;
     overflow-y: auto;
-    min-height: 200px;
-    max-height: calc(100vh - 400px);
+    overflow-x: hidden;
 }
 
 .mod-item {
@@ -298,16 +299,18 @@ main {
 .tab-content {
     display: none;
     flex: 1;
-    overflow: auto;
+    overflow: hidden;
 }
 
 .tab-content.active {
-    display: block;
+    display: flex;
+    flex-direction: column;
 }
 
 .tab-panel {
-    padding: 1.5rem;
-    min-height: 500px;
+    padding: 1rem;
+    flex: 1;
+    overflow: auto;
 }
 
 /* JSON Tree View */
@@ -393,9 +396,16 @@ main {
 /* File Browser */
 .file-browser {
     display: grid;
-    grid-template-columns: 300px 1fr;
+    grid-template-columns: 250px 1fr;
     gap: 1rem;
     height: 100%;
+    overflow: hidden;
+}
+
+.file-tree-container {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .file-tree {
@@ -404,15 +414,19 @@ main {
     padding: 0.5rem;
     background: var(--bg-color);
     overflow-y: auto;
-    max-height: 600px;
+    overflow-x: hidden;
+    flex: 1;
 }
 
 .file-tree-item {
-    padding: 0.5rem;
+    padding: 0.25rem 0.5rem;
     cursor: pointer;
     border-radius: 4px;
     transition: background 0.2s;
     font-size: 0.875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .file-tree-item:hover {
@@ -423,13 +437,29 @@ main {
     background: var(--primary-dark);
 }
 
+.file-preview-container {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 .file-preview {
     border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 1rem;
     background: var(--bg-color);
     overflow: auto;
-    max-height: 600px;
+    flex: 1;
+}
+
+.code-preview {
+    display: flex;
+    overflow-x: auto;
+}
+
+.code-content {
+    flex: 1;
+    overflow-x: auto;
 }
 
 .line-numbers {

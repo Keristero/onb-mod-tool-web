@@ -268,8 +268,8 @@ class ModAnalyzer {
             
             this.renderModList();
             
-            // Select this mod
-            this.selectMod(this.processedMods.length - 1);
+            // Select this mod (it's at index 0 since we used unshift)
+            await this.selectMod(0);
             
             // Save state
             this.saveState();
@@ -308,9 +308,9 @@ class ModAnalyzer {
         
         // Add click handlers
         this.elements.modList.querySelectorAll('.mod-item').forEach(el => {
-            el.addEventListener('click', () => {
+            el.addEventListener('click', async () => {
                 const index = parseInt(el.dataset.index);
-                this.selectMod(index);
+                await this.selectMod(index);
             });
         });
     }
@@ -328,7 +328,7 @@ class ModAnalyzer {
         this.renderModList();
     }
     
-    selectMod(index) {
+    async selectMod(index) {
         this.currentModIndex = index;
         const mod = this.processedMods[index];
         
@@ -336,14 +336,17 @@ class ModAnalyzer {
         
         this.renderModList();
         
-        // Notify all tabs
+        // Notify all tabs and wait for them to load
+        const promises = [];
         for (const tab of Object.values(this.tabs)) {
-            tab.onFileProcessed(mod);
+            promises.push(tab.onFileProcessed(mod));
         }
+        await Promise.all(promises);
         
-        // Render active tab
-        const activeTabName = document.querySelector('.tab.active').dataset.tab;
-        this.tabs[activeTabName].render();
+        // Render all tabs to ensure they're in sync
+        for (const tab of Object.values(this.tabs)) {
+            tab.render();
+        }
     }
     
     switchTab(tabName) {
