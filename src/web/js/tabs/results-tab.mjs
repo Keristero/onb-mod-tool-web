@@ -48,7 +48,8 @@ export default class ResultsTab extends BaseTab {
         }
         
         // Re-render after zip is loaded to ensure hovers are set up
-        if (this.container && this.container.querySelector('#json-view').children.length > 0) {
+        const jsonView = this.container?.querySelector('#json-view');
+        if (jsonView && jsonView.children.length > 0) {
             this.setupJsonFileHovers();
             this.setupFilePreviewHovers();
         }
