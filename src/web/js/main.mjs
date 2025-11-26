@@ -118,14 +118,37 @@ class ModAnalyzer {
             const response = await fetch('../versions/index.json');
             const versions = await response.json();
             
-            this.elements.versionSelect.innerHTML = versions.map(v => 
-                `<option value="${v.version}" ${v.version === 'latest' ? 'selected' : ''}>
-                    ${v.version} ${v.latest ? '(Latest)' : ''}
+            if (versions.length === 0) {
+                // Fallback to latest if no versions exist
+                this.elements.versionSelect.innerHTML = '<option value="latest">Latest</option>';
+                this.currentVersion = 'latest';
+                return;
+            }
+            
+            // Sort versions by semver (highest first)
+            const sortedVersions = versions.sort((a, b) => {
+                const aVer = a.version.replace(/^v/, '').split('.').map(Number);
+                const bVer = b.version.replace(/^v/, '').split('.').map(Number);
+                
+                for (let i = 0; i < 3; i++) {
+                    if (aVer[i] !== bVer[i]) return bVer[i] - aVer[i];
+                }
+                return 0;
+            });
+            
+            // The first version in sorted list is the latest
+            const latestVersion = sortedVersions[0].version;
+            this.currentVersion = latestVersion;
+            
+            this.elements.versionSelect.innerHTML = sortedVersions.map(v => 
+                `<option value="${v.version}" ${v.version === latestVersion ? 'selected' : ''}>
+                    ${v.version}${v.version === latestVersion ? ' (Latest)' : ''}
                 </option>`
             ).join('');
         } catch (error) {
             console.warn('Could not load versions, using default');
             this.elements.versionSelect.innerHTML = '<option value="latest">Latest</option>';
+            this.currentVersion = 'latest';
         }
     }
     
