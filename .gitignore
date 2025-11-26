@@ -1,0 +1,40 @@
+# Build outputs
+result
+result-*
+src/web/versions/latest/*
+!src/web/versions/latest/.gitkeep
+
+# Nix
+.nix-*
+
+# Mise
+.mise.*.toml
+.mise.local.toml
+
+# Dart
+.dart_tool/
+.packages
+pubspec.lock
+*.dart.js
+*.js_
+*.js.deps
+*.js.map
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+error.txt
+
+# Temporary files
+*.tmp
+*.temp
