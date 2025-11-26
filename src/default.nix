@@ -21,7 +21,8 @@ in {
     
     unpackPhase = ''
       # Copy source to a writable location
-      cp -r $src ./source
+      mkdir -p ./source
+      cp -r $src/* ./source/
       chmod -R u+w ./source
       cd ./source
     '';
@@ -62,7 +63,8 @@ in {
     
     unpackPhase = ''
       # Copy source to a writable location
-      cp -r $src ./source
+      mkdir -p ./source
+      cp -r $src/* ./source/
       chmod -R u+w ./source
       cd ./source
     '';
