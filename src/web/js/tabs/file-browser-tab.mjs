@@ -1,17 +1,20 @@
 // File Browser Tab - Displays mod file structure and contents
 
 import * as parser from '../parser.mjs';
+import BaseTab from './base-tab.mjs';
+import { FilePreviewMixin } from './file-preview-mixin.mjs';
+import { ErrorManager } from './error-manager.mjs';
 
-export default class FileBrowserTab {
+export default class FileBrowserTab extends BaseTab {
     constructor() {
-        this.container = null;
-        this.currentMod = null;
-        this.zipArchive = null;
+        super();
+        Object.assign(this, FilePreviewMixin);
         this.selectedFile = null;
+        this.errorManager = new ErrorManager();
     }
     
     async init(container) {
-        this.container = container;
+        await super.init(container);
         this.container.innerHTML = `
             <div class="file-browser">
                 <div class="file-tree-container">
@@ -29,23 +32,18 @@ export default class FileBrowserTab {
     }
     
     async onFileProcessed(mod) {
-        this.currentMod = mod;
+        await super.onFileProcessed(mod);
         
-        if (mod.fileData) {
-            try {
-                this.zipArchive = await JSZip.loadAsync(mod.fileData);
-            } catch (error) {
-                console.error('Failed to load zip:', error);
-                this.zipArchive = null;
-            }
+        // Parse errors for this mod
+        if (mod.result?.stderr) {
+            this.errorManager.parseErrors(mod.result.stderr);
         }
     }
     
     render() {
         if (!this.currentMod || !this.zipArchive) {
-            this.container.querySelector('#file-tree').innerHTML = 
-                '<div class="empty-state">No files available</div>';
-            this.container.querySelector('#file-preview').innerHTML = '';
+            this.setHTML('#file-tree', '<div class="empty-state">No files available</div>');
+            this.setHTML('#file-preview', '');
             return;
         }
         
@@ -55,13 +53,11 @@ export default class FileBrowserTab {
     renderFileTree() {
         const tree = this.buildFileTree();
         const html = this.renderTreeNode(tree);
-        this.container.querySelector('#file-tree').innerHTML = html;
+        this.setHTML('#file-tree', html);
         
         // Add click handlers
-        this.container.querySelectorAll('.file-tree-item[data-path]').forEach(item => {
-            item.addEventListener('click', () => {
-                this.selectFile(item.dataset.path);
-            });
+        this.addEventListeners('.file-tree-item[data-path]', 'click', (e) => {
+            this.selectFile(e.target.dataset.path);
         });
     }
     
@@ -126,37 +122,20 @@ export default class FileBrowserTab {
         `;
     }
     
-    getFileIcon(filename) {
-        const ext = filename.split('.').pop().toLowerCase();
-        const icons = {
-            'lua': '📄',
-            'png': '🖼️',
-            'jpg': '🖼️',
-            'jpeg': '🖼️',
-            'gif': '🖼️',
-            'txt': '📝',
-            'md': '📝',
-            'json': '📋',
-            'xml': '📋',
-            'animation': '🎬',
-            'ogg': '🔊',
-            'wav': '🔊',
-            'mp3': '🔊'
-        };
-        return icons[ext] || '📄';
-    }
+
     
     async selectFile(path) {
         this.selectedFile = path;
         
         // Update active state
-        this.container.querySelectorAll('.file-tree-item').forEach(item => {
+        this.querySelectorAll('.file-tree-item').forEach(item => {
             item.classList.toggle('active', item.dataset.path === path);
         });
         
         // Update header
         const filename = path.split('/').pop();
-        this.container.querySelector('#preview-filename').textContent = filename;
+        const headerEl = this.querySelector('#preview-filename');
+        if (headerEl) headerEl.textContent = filename;
         
         // Load and display file
         const file = this.zipArchive.files[path];
@@ -168,6 +147,8 @@ export default class FileBrowserTab {
             await this.displayImage(file);
         } else if (['lua', 'txt', 'md', 'json', 'xml', 'animation'].includes(ext)) {
             await this.displayText(file, ext);
+        } else if (['ogg', 'wav', 'mp3'].includes(ext)) {
+            await this.displayAudio(file, filename);
         } else {
             this.displayBinary(file);
         }
@@ -177,44 +158,85 @@ export default class FileBrowserTab {
         const blob = await file.async('blob');
         const url = URL.createObjectURL(blob);
         
-        this.container.querySelector('#file-preview').innerHTML = `
+        this.setHTML('#file-preview', `
             <div class="image-preview">
                 <img src="${url}" alt="Preview" style="max-width: 100%; height: auto;" />
             </div>
-        `;
+        `);
+    }
+    
+    async displayAudio(file, filename) {
+        const blob = await file.async('blob');
+        const url = URL.createObjectURL(blob);
+        const ext = filename.split('.').pop().toLowerCase();
+        
+        this.setHTML('#file-preview', `
+            <div class="audio-preview">
+                <audio controls style="width: 100%;">
+                    <source src="${url}" type="audio/${ext}">
+                    Your browser does not support the audio element.
+                </audio>
+            </div>
+        `);
+        
+        // Set volume to 50%
+        const audioElement = this.querySelector('audio');
+        if (audioElement) {
+            audioElement.volume = 0.5;
+        }
     }
     
     async displayText(file, ext) {
         const content = await file.async('string');
         const errors = this.getErrorsForFile(this.selectedFile);
         
+        // Build error summary section
+        let errorSummaryHtml = '';
+        if (errors.length > 0) {
+            const errorItems = errors.map(e => 
+                `<div class="error-item">
+                    <span class="error-location">[${e.line}:${e.column}]</span>
+                    <span class="error-message">${this.escapeHtml(e.message)}</span>
+                </div>`
+            ).join('');
+            
+            errorSummaryHtml = `
+                <div class="error-summary">
+                    <div class="error-summary-header">⚠️ ${errors.length} error${errors.length > 1 ? 's' : ''} in this file:</div>
+                    <div class="error-summary-list">${errorItems}</div>
+                </div>
+            `;
+        }
+        
         const lines = content.split('\n');
-        const lineNumbersHtml = lines.map((_, i) => i + 1).join('\n');
+        const lineNumbersHtml = lines.map((_, i) => 
+            `<div class="line-number">${i + 1}</div>`
+        ).join('');
         
         let linesHtml = lines.map((line, index) => {
             const lineNum = index + 1;
-            const hasError = errors.some(e => e.line === lineNum);
+            const lineErrors = errors.filter(e => e.line === lineNum);
+            const hasError = lineErrors.length > 0;
             const errorClass = hasError ? 'error-line' : '';
-            const escapedLine = this.escapeHtml(line);
             
-            return `<div class="code-line ${errorClass}" data-line="${lineNum}">${escapedLine}</div>`;
-        }).join('\n');
+            // Apply syntax highlighting first
+            let highlightedLine = this.syntaxHighlight(line, ext);
+            
+            // Then add column markers for each error on this line
+            if (hasError) {
+                highlightedLine = this.highlightErrorColumns(line, highlightedLine, lineErrors);
+            }
+            
+            return `<div class="code-line ${errorClass}" data-line="${lineNum}">${highlightedLine}</div>`;
+        }).join('');
         
-        this.container.querySelector('#file-preview').innerHTML = `
+        this.setHTML('#file-preview', `
+            ${errorSummaryHtml}
             <div class="code-preview">
                 <div class="line-numbers">${lineNumbersHtml}</div>
-                <div class="code-content">
-                    <pre><code class="language-${ext}">${linesHtml}</code></pre>
-                </div>
+                <div class="code-content">${linesHtml}</div>
             </div>
-        `;
-        
-        // Apply syntax highlighting
-        if (window.hljs) {
-            this.container.querySelectorAll('pre code').forEach((block) => {
-                hljs.highlightElement(block);
-            });
-        }
+        `);
         
         // Add error tooltips
         if (errors.length > 0) {
@@ -222,24 +244,98 @@ export default class FileBrowserTab {
         }
     }
     
+    /**
+     * Highlight specific error column positions in a syntax-highlighted line
+     * @param {string} originalLine - The original unescaped line
+     * @param {string} highlightedLine - The syntax-highlighted HTML line
+     * @param {Array} errors - Array of errors for this line
+     * @returns {string} Line with error column markers
+     */
+    highlightErrorColumns(originalLine, highlightedLine, errors) {
+        // Sort errors by column (descending) to insert markers from right to left
+        const sortedErrors = [...errors].sort((a, b) => b.column - a.column);
+        
+        // For each error, we need to find the character position in the HTML
+        // This is tricky because the HTML has syntax highlighting tags
+        
+        // Strategy: Insert an invisible marker at the column position
+        // We'll do this by finding the nth visible character in the HTML
+        
+        let result = highlightedLine;
+        
+        for (const error of sortedErrors) {
+            const col = error.column - 1; // Convert to 0-based
+            
+            // Count visible characters in the original line
+            if (col < 0 || col >= originalLine.length) continue;
+            
+            // Find the position in HTML that corresponds to this column
+            const htmlPosition = this.findHtmlPositionForColumn(highlightedLine, col);
+            
+            if (htmlPosition !== -1) {
+                // Insert error marker
+                result = result.slice(0, htmlPosition) + 
+                        '<span class="error-column-marker"></span>' + 
+                        result.slice(htmlPosition);
+            }
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Find the HTML position that corresponds to a specific column in the original text
+     * @param {string} html - The HTML string with syntax highlighting
+     * @param {number} targetColumn - The column position (0-based)
+     * @returns {Object} {start, end} positions in HTML string for the character
+     */
+    findHtmlPositionForColumn(html, targetColumn) {
+        let visibleChars = 0;
+        let inTag = false;
+        
+        for (let i = 0; i < html.length; i++) {
+            const char = html[i];
+            
+            if (char === '<') {
+                inTag = true;
+            } else if (char === '>') {
+                inTag = false;
+            } else if (!inTag) {
+                // This is a visible character
+                if (visibleChars === targetColumn) {
+                    // Find the end of this character (next tag or next character)
+                    let end = i + 1;
+                    // Handle HTML entities like &lt; &gt; &amp;
+                    if (char === '&') {
+                        while (end < html.length && html[end] !== ';') {
+                            end++;
+                        }
+                        if (end < html.length) end++; // Include the semicolon
+                    }
+                    return { start: i, end: end };
+                }
+                visibleChars++;
+            }
+        }
+        
+        return { start: -1, end: -1 };
+    }
+    
+
+    
     displayBinary(file) {
-        this.container.querySelector('#file-preview').innerHTML = `
+        this.setHTML('#file-preview', `
             <div class="binary-preview">
                 <p>Binary file (${file._data.uncompressedSize} bytes)</p>
                 <button class="btn" onclick="this.download()">Download</button>
             </div>
-        `;
+        `);
     }
     
     getErrorsForFile(path) {
-        if (!this.currentMod || !this.currentMod.errors) return [];
-        
-        return this.currentMod.errors
-            .map(e => {
-                const loc = parser.parseErrorLocation(e.message);
-                return loc && loc.file === path.split('/').pop() ? { ...e, ...loc } : null;
-            })
-            .filter(e => e !== null);
+        // Use ErrorManager for centralized error retrieval
+        const fileName = path.split('/').pop();
+        return this.errorManager.getErrorsForFile(fileName);
     }
     
     addErrorTooltips(errors) {
@@ -252,21 +348,16 @@ export default class FileBrowserTab {
         });
     }
     
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
+
     
     clear() {
-        this.currentMod = null;
-        this.zipArchive = null;
+        super.clear();
         this.selectedFile = null;
+        this.errorManager.parseErrors(''); // Clear errors
         
         if (this.container) {
-            this.container.querySelector('#file-tree').innerHTML = 
-                '<div class="empty-state">No files</div>';
-            this.container.querySelector('#file-preview').innerHTML = '';
+            this.setHTML('#file-tree', '<div class="empty-state">No files</div>');
+            this.setHTML('#file-preview', '');
         }
     }
 }

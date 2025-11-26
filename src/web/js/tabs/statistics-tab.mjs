@@ -1,15 +1,16 @@
 // Statistics Tab - Displays aggregated statistics and metrics
 
 import * as parser from '../parser.mjs';
+import BaseTab from './base-tab.mjs';
 
-export default class StatisticsTab {
+export default class StatisticsTab extends BaseTab {
     constructor() {
-        this.container = null;
+        super();
         this.allMods = [];
     }
     
     async init(container) {
-        this.container = container;
+        await super.init(container);
         this.container.innerHTML = `
             <div class="statistics-view">
                 <div class="statistics-header">
@@ -25,9 +26,9 @@ export default class StatisticsTab {
         `;
         
         // Event listeners
-        this.container.querySelector('#export-stats-csv').addEventListener('click', () => this.exportCSV());
-        this.container.querySelector('#export-stats-xml').addEventListener('click', () => this.exportXML());
-        this.container.querySelector('#clear-stats').addEventListener('click', () => this.clearStats());
+        this.addEventListener(this.querySelector('#export-stats-csv'), 'click', () => this.exportCSV());
+        this.addEventListener(this.querySelector('#export-stats-xml'), 'click', () => this.exportXML());
+        this.addEventListener(this.querySelector('#clear-stats'), 'click', () => this.clearStats());
         
         // Load saved statistics
         this.loadStats();
@@ -44,14 +45,14 @@ export default class StatisticsTab {
     
     render() {
         if (this.allMods.length === 0) {
-            this.container.querySelector('#stats-content').innerHTML = 
-                '<div class="empty-state">No statistics available. Process some mods to see analytics.</div>';
+            this.setHTML('#stats-content', 
+                '<div class="empty-state">No statistics available. Process some mods to see analytics.</div>');
             return;
         }
         
         const stats = this.calculateStats();
         const html = this.renderStats(stats);
-        this.container.querySelector('#stats-content').innerHTML = html;
+        this.setHTML('#stats-content', html);
     }
     
     calculateStats() {
@@ -363,26 +364,9 @@ export default class StatisticsTab {
         this.downloadFile('mod-statistics.xml', xml, 'application/xml');
     }
     
-    escapeXml(text) {
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&apos;'
-        };
-        return String(text).replace(/[&<>"']/g, m => map[m]);
-    }
+
     
-    downloadFile(filename, content, type) {
-        const blob = new Blob([content], { type });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
-    }
+
     
     saveStats() {
         try {

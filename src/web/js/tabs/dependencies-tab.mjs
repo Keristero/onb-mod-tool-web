@@ -1,21 +1,27 @@
 // Dependencies Tab - Visualizes mod dependency graph
 
 import * as parser from '../parser.mjs';
+import BaseTab from './base-tab.mjs';
 
-export default class DependenciesTab {
+export default class DependenciesTab extends BaseTab {
     constructor() {
-        this.container = null;
+        super();
         this.allMods = [];
         this.graph = null;
+        this.showOnlyCurrent = false;
     }
     
     async init(container) {
-        this.container = container;
+        await super.init(container);
         this.container.innerHTML = `
             <div class="dependencies-view">
                 <div class="dependencies-header">
                     <h2>Dependency Graph</h2>
                     <div class="dependencies-actions">
+                        <label style="margin-right: 1rem;">
+                            <input type="checkbox" id="show-only-current" />
+                            Show only current mod
+                        </label>
                         <button id="export-graph-png" class="btn btn-secondary">Export PNG</button>
                         <button id="export-graph-json" class="btn btn-secondary">Export JSON</button>
                         <button id="reset-graph" class="btn btn-secondary">Reset View</button>
@@ -27,23 +33,40 @@ export default class DependenciesTab {
         `;
         
         // Event listeners
-        this.container.querySelector('#export-graph-png').addEventListener('click', () => this.exportPNG());
-        this.container.querySelector('#export-graph-json').addEventListener('click', () => this.exportJSON());
-        this.container.querySelector('#reset-graph').addEventListener('click', () => this.resetGraph());
+        this.addEventListener(this.querySelector('#show-only-current'), 'change', (e) => {
+            this.showOnlyCurrent = e.target.checked;
+            this.render();
+        });
+        this.addEventListener(this.querySelector('#export-graph-png'), 'click', () => this.exportPNG());
+        this.addEventListener(this.querySelector('#export-graph-json'), 'click', () => this.exportJSON());
+        this.addEventListener(this.querySelector('#reset-graph'), 'click', () => this.resetGraph());
     }
     
-    onFileProcessed(mod) {
+    async onFileProcessed(mod) {
+        // Don't call super - we manage mods differently in dependencies tab
+        // Set as current mod but don't load zip (we track our own)
+        this.currentMod = mod;
+        
         // Add to collection if not already there
         const existing = this.allMods.find(m => m.id === mod.id);
         if (!existing && mod.parsed) {
             this.allMods.push(mod);
+        } else if (existing && mod.parsed) {
+            // Update existing
+            Object.assign(existing, mod);
         }
     }
     
     render() {
-        if (this.allMods.length === 0) {
-            this.container.querySelector('#dependency-graph').innerHTML = 
-                '<div class="empty-state">No mods to display. Process some mods to see their dependencies.</div>';
+        if (this.showOnlyCurrent && !this.currentMod) {
+            this.setHTML('#dependency-graph', 
+                '<div class="empty-state">No mod selected. Process a mod to see its dependencies and file includes.</div>');
+            return;
+        }
+        
+        if (!this.showOnlyCurrent && this.allMods.length === 0) {
+            this.setHTML('#dependency-graph', 
+                '<div class="empty-state">No mods to display. Process some mods to see their dependencies.</div>');
             return;
         }
         
@@ -57,30 +80,37 @@ export default class DependenciesTab {
         const links = [];
         const nodeMap = new Map();
         
-        this.allMods.forEach(mod => {
+        // Determine which mods to process
+        const modsToProcess = this.showOnlyCurrent && this.currentMod 
+            ? [this.currentMod] 
+            : this.allMods;
+        
+        modsToProcess.forEach(mod => {
             if (!mod.parsed) return;
             
             const deps = parser.extractDependencies(mod.parsed);
             
-            // Add node
+            // Add main mod node
             if (!nodeMap.has(deps.packageId)) {
                 const node = {
                     id: deps.packageId,
                     name: mod.parsed.name,
                     category: mod.parsed.category,
+                    type: 'mod',
                     hasData: true
                 };
                 nodes.push(node);
                 nodeMap.set(deps.packageId, node);
             }
             
-            // Add dependency nodes and links
+            // Add package dependency nodes and links
             deps.dependencies.forEach(depId => {
                 if (!nodeMap.has(depId)) {
                     const node = {
                         id: depId,
                         name: depId,
                         category: 'external',
+                        type: 'package',
                         hasData: false
                     };
                     nodes.push(node);
@@ -89,9 +119,50 @@ export default class DependenciesTab {
                 
                 links.push({
                     source: deps.packageId,
-                    target: depId
+                    target: depId,
+                    type: 'package-dependency'
                 });
             });
+            
+            // Add file nodes and includes (if data available)
+            if (mod.result && mod.result.data && mod.result.data.resources) {
+                const resources = mod.result.data.resources;
+                
+                // Get all .lua files
+                const luaFiles = [];
+                if (resources.incs) {
+                    luaFiles.push(...resources.incs);
+                }
+                
+                // Create file nodes
+                luaFiles.forEach(filePath => {
+                    const fileId = `${deps.packageId}/${filePath}`;
+                    if (!nodeMap.has(fileId)) {
+                        const fileName = filePath.split('/').pop();
+                        const node = {
+                            id: fileId,
+                            name: fileName,
+                            fullPath: filePath,
+                            category: 'file',
+                            type: 'file',
+                            hasData: true,
+                            parentMod: deps.packageId
+                        };
+                        nodes.push(node);
+                        nodeMap.set(fileId, node);
+                        
+                        // Link file to its mod
+                        links.push({
+                            source: deps.packageId,
+                            target: fileId,
+                            type: 'contains'
+                        });
+                    }
+                });
+                
+                // TODO: Parse file includes from actual file content
+                // For now, just show files belong to mod
+            }
         });
         
         // Detect circular dependencies
@@ -194,11 +265,16 @@ export default class DependenciesTab {
             .attr('stroke', d => {
                 const sourceId = d.source.id || d.source;
                 const targetId = d.target.id || d.target;
-                return cycleNodes.has(sourceId) && cycleNodes.has(targetId) 
-                    ? 'var(--error-color)' 
-                    : 'var(--border-color)';
+                if (cycleNodes.has(sourceId) && cycleNodes.has(targetId)) {
+                    return 'var(--error-color)';
+                }
+                // Different colors for different link types
+                if (d.type === 'contains') return 'var(--text-secondary)';
+                if (d.type === 'file-include') return 'var(--success-color)';
+                return 'var(--primary-color)';
             })
-            .attr('stroke-width', 2)
+            .attr('stroke-width', d => d.type === 'contains' ? 1 : 2)
+            .attr('stroke-dasharray', d => d.type === 'contains' ? '5,5' : null)
             .attr('marker-end', 'url(#arrowhead)');
         
         // Add arrowhead marker
@@ -224,11 +300,12 @@ export default class DependenciesTab {
                 .on('drag', dragged)
                 .on('end', dragended));
         
-        // Add circles
+        // Add circles with different sizes for different node types
         node.append('circle')
-            .attr('r', 20)
+            .attr('r', d => d.type === 'file' ? 12 : 20)
             .attr('fill', d => {
                 if (cycleNodes.has(d.id)) return 'var(--error-color)';
+                if (d.type === 'file') return 'var(--success-color)';
                 if (!d.hasData) return 'var(--text-secondary)';
                 return 'var(--primary-color)';
             })
@@ -239,14 +316,19 @@ export default class DependenciesTab {
         node.append('text')
             .text(d => d.name.length > 15 ? d.name.slice(0, 12) + '...' : d.name)
             .attr('x', 0)
-            .attr('y', 35)
+            .attr('y', d => d.type === 'file' ? 25 : 35)
             .attr('text-anchor', 'middle')
             .attr('fill', 'var(--text-color)')
-            .attr('font-size', '12px');
+            .attr('font-size', d => d.type === 'file' ? '10px' : '12px');
         
         // Add tooltips
         node.append('title')
-            .text(d => `${d.name}\nID: ${d.id}\nCategory: ${d.category}`);
+            .text(d => {
+                if (d.type === 'file') {
+                    return `File: ${d.name}\nPath: ${d.fullPath}\nMod: ${d.parentMod}`;
+                }
+                return `${d.name}\nID: ${d.id}\nCategory: ${d.category}\nType: ${d.type}`;
+            });
         
         // Update positions on tick
         simulation.on('tick', () => {
@@ -281,7 +363,7 @@ export default class DependenciesTab {
     }
     
     displayInfo() {
-        const info = this.container.querySelector('#dependency-info');
+        const info = this.querySelector('#dependency-info');
         
         if (!this.graph) {
             info.innerHTML = '';
@@ -289,25 +371,44 @@ export default class DependenciesTab {
         }
         
         const { nodes, links, cycles } = this.graph;
-        const externalNodes = nodes.filter(n => !n.hasData).length;
+        const modNodes = nodes.filter(n => n.type === 'mod' || n.type === 'package');
+        const fileNodes = nodes.filter(n => n.type === 'file');
+        const externalNodes = nodes.filter(n => !n.hasData && n.type !== 'file').length;
+        
+        const modeName = this.showOnlyCurrent && this.currentMod 
+            ? `Current: ${this.currentMod.parsed.name}` 
+            : 'All Mods';
         
         info.innerHTML = `
             <div class="info-grid">
                 <div class="info-item">
+                    <strong>View Mode:</strong> ${modeName}
+                </div>
+                <div class="info-item">
                     <strong>Total Nodes:</strong> ${nodes.length}
                 </div>
                 <div class="info-item">
-                    <strong>Analyzed Mods:</strong> ${nodes.length - externalNodes}
+                    <strong>Mods:</strong> ${modNodes.length - externalNodes}
+                </div>
+                <div class="info-item">
+                    <strong>Files:</strong> ${fileNodes.length}
                 </div>
                 <div class="info-item">
                     <strong>External Dependencies:</strong> ${externalNodes}
                 </div>
                 <div class="info-item">
-                    <strong>Dependencies:</strong> ${links.length}
+                    <strong>Links:</strong> ${links.length}
                 </div>
                 <div class="info-item ${cycles.length > 0 ? 'error' : 'success'}">
                     <strong>Circular Dependencies:</strong> ${cycles.length > 0 ? '⚠ ' + cycles.length + ' detected' : '✓ None'}
                 </div>
+            </div>
+            <div style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-color); border-radius: 4px; font-size: 0.875rem;">
+                <strong>Legend:</strong>
+                <span style="margin-left: 1rem; color: var(--primary-color);">● Mod</span>
+                <span style="margin-left: 1rem; color: var(--success-color);">● File</span>
+                <span style="margin-left: 1rem; color: var(--text-secondary);">● External</span>
+                <span style="margin-left: 1rem; color: var(--error-color);">● Circular</span>
             </div>
             ${cycles.length > 0 ? `
                 <div class="cycle-warning">
@@ -322,7 +423,7 @@ export default class DependenciesTab {
     
     resetGraph() {
         if (this.graph && this.graph.svg) {
-            const svg = d3.select(this.container.querySelector('svg'));
+            const svg = d3.select(this.querySelector('svg'));
             svg.transition()
                 .duration(750)
                 .call(d3.zoom().transform, d3.zoomIdentity);
@@ -332,7 +433,7 @@ export default class DependenciesTab {
     }
     
     exportPNG() {
-        const svg = this.container.querySelector('svg');
+        const svg = this.querySelector('svg');
         if (!svg) return;
         
         const svgData = new XMLSerializer().serializeToString(svg);
@@ -376,13 +477,7 @@ export default class DependenciesTab {
         };
         
         const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'dependency-graph.json';
-        a.click();
-        URL.revokeObjectURL(url);
+        this.downloadFile('dependency-graph.json', json, 'application/json');
     }
     
     clear() {

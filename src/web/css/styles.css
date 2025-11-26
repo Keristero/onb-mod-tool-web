@@ -209,6 +209,7 @@ main {
     flex: 1;
     overflow-y: auto;
     min-height: 200px;
+    max-height: calc(100vh - 400px);
 }
 
 .mod-item {
@@ -374,6 +375,21 @@ main {
     color: var(--primary-color);
 }
 
+/* JSON File Path Links */
+.json-file-path {
+    cursor: pointer !important;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: var(--text-secondary);
+    transition: all 0.2s;
+}
+
+.json-file-path:hover {
+    color: var(--primary-color) !important;
+    text-decoration-color: var(--primary-color);
+    text-decoration-style: solid;
+}
+
 /* File Browser */
 .file-browser {
     display: grid;
@@ -430,6 +446,57 @@ main {
     background: rgba(244, 67, 54, 0.2);
     border-left: 3px solid var(--error-color);
     padding-left: 0.5rem;
+}
+
+/* Error Column Marker - Highlights the specific character where the error occurs */
+.error-column-marker {
+    display: inline;
+    background: rgba(244, 67, 54, 0.4);
+    padding: 0 2px;
+    border-radius: 2px;
+    box-shadow: 0 0 3px rgba(244, 67, 54, 0.6);
+}
+
+/* Error Summary */
+.error-summary {
+    background: rgba(244, 67, 54, 0.1);
+    border: 1px solid var(--error-color);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.error-summary-header {
+    font-weight: 600;
+    color: var(--error-color);
+    margin-bottom: 0.5rem;
+    font-size: 0.95rem;
+}
+
+.error-summary-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.error-item {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.error-location {
+    font-family: 'Fira Code', 'Courier New', monospace;
+    color: var(--primary-color);
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.error-message {
+    color: var(--text-color);
 }
 
 /* Statistics */
@@ -626,9 +693,10 @@ main {
 }
 
 .console-section {
-    margin-top: 2rem;
-    padding-top: 2rem;
-    border-top: 1px solid var(--border-color);
+    margin-top: 0;
+    margin-bottom: 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border-color);
 }
 
 .console-section h3 {
@@ -658,8 +726,76 @@ main {
     line-height: 1.6;
 }
 
+.code-content {
+    flex: 1;
+    overflow-x: auto;
+}
+
+.code-content pre {
+    margin: 0;
+    padding: 0;
+    white-space: pre;
+    line-height: 1.6;
+}
+
+.code-content code {
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.875rem;
+}
+
 .code-line {
-    padding: 0 0.5rem;
+    padding: 0;
+    margin: 0;
+    white-space: pre;
+    line-height: 1.6;
+}
+
+/* Syntax Highlighting */
+.hljs-keyword {
+    color: #c678dd;
+    font-weight: 600;
+}
+
+.hljs-string {
+    color: #98c379;
+}
+
+.hljs-number {
+    color: #d19a66;
+}
+
+.hljs-comment {
+    color: #5c6370;
+    font-style: italic;
+}
+
+.hljs-title.function_ {
+    color: #61afef;
+}
+
+.hljs-attr {
+    color: #e06c75;
+}
+
+.hljs-literal {
+    color: #56b6c2;
+}
+
+.line-numbers {
+    padding-right: 1rem;
+    margin-right: 1rem;
+    border-right: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    user-select: none;
+    text-align: right;
+    white-space: pre;
+    line-height: 1.6;
+}
+
+.line-number {
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
 }
 
 .image-preview,
@@ -762,6 +898,168 @@ main {
 
 .folder-children {
     margin-left: 1rem;
+}
+
+/* Hover Preview Tooltip */
+.hover-preview-tooltip {
+    position: fixed;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    max-width: 800px;
+    max-height: 500px;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.file-preview-tooltip {
+    min-width: 400px;
+}
+
+.tooltip-header {
+    padding: 0.75rem 1rem;
+    background: var(--bg-color);
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--primary-color);
+}
+
+.tooltip-error-summary {
+    padding: 0.5rem 1rem;
+    background: rgba(244, 67, 54, 0.1);
+    border-bottom: 1px solid var(--error-color);
+    color: var(--error-color);
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.image-preview-container,
+.audio-preview-container,
+.binary-preview-container {
+    padding: 1rem;
+}
+
+.image-preview-container img {
+    display: block;
+    margin: 0 auto;
+}
+
+.audio-preview-container audio {
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.audio-preview,
+.image-preview {
+    padding: 1rem;
+    text-align: center;
+}
+
+.audio-preview audio {
+    width: 100%;
+    max-width: 500px;
+}
+
+.binary-preview-container {
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.binary-preview-container p {
+    margin: 0.5rem 0;
+}
+
+/* Console Output Clickable Elements */
+.console-file,
+.console-location,
+.console-location-bracket {
+    cursor: pointer;
+    position: relative;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: var(--text-secondary);
+}
+
+.console-file:hover,
+.console-location:hover,
+.console-location-bracket:hover,
+.console-file.highlighted,
+.console-location-bracket.highlighted {
+    color: var(--primary-color);
+    text-decoration-color: var(--primary-color);
+    text-decoration-style: solid;
+}
+
+.console-location-bracket {
+    font-weight: 600;
+    color: var(--warning-color);
+}
+
+.highlighted {
+    background: rgba(33, 150, 243, 0.2);
+    padding: 0 2px;
+    border-radius: 2px;
+}
+
+/* Error Line Styling in Tooltip */
+.hover-preview-tooltip .error-line {
+    background: rgba(244, 67, 54, 0.15);
+    border-left: 3px solid var(--error-color);
+    padding-left: 0.5rem;
+}
+
+.hover-preview-tooltip .code-preview {
+    padding: 1rem;
+    display: flex;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.875rem;
+}
+
+.hover-preview-tooltip .line-numbers {
+    min-width: 40px;
+    padding-right: 1rem;
+    margin-right: 1rem;
+    border-right: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    user-select: none;
+    text-align: right;
+    white-space: pre;
+    line-height: 1.6;
+}
+
+.hover-preview-tooltip .line-number {
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+}
+
+.hover-preview-tooltip .code-content {
+    flex: 1;
+    overflow-x: auto;
+}
+
+.hover-preview-tooltip .code-content pre {
+    margin: 0;
+    padding: 0;
+    white-space: pre;
+    line-height: 1.6;
+}
+
+.hover-preview-tooltip .code-line {
+    padding: 0;
+    margin: 0;
+    white-space: pre;
+    line-height: 1.6;
+}
+
+/* Console Section */
+.console-section {
+    margin-bottom: 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border-color);
 }
 
 /* Responsive Design */
