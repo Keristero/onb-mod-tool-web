@@ -1,0 +1,13 @@
+[
+  {
+    "version": "latest",
+    "latest": true,
+    "buildDate": "2025-01-01T00:00:00Z",
+    "features": [
+      "mod-analysis",
+      "lua-parsing",
+      "json-output"
+    ],
+    "description": "Latest development build"
+  }
+]

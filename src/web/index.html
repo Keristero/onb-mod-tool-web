@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ONB Mod Analyzer</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1>ONB Mod Analyzer</h1>
+                <div class="version-selector">
+                    <label for="version-select">Analyzer Version:</label>
+                    <select id="version-select">
+                        <option value="latest">Latest</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <div class="upload-section">
+                <div class="drop-zone" id="drop-zone">
+                    <div class="drop-zone-content">
+                        <svg class="upload-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <p class="drop-zone-text">Drop mod files here or click to select</p>
+                        <p class="drop-zone-hint">Supports .zip mod files</p>
+                    </div>
+                    <input type="file" id="file-input" accept=".zip" multiple hidden>
+                </div>
+            </div>
+
+            <div class="main-content" id="main-content" style="display: none;">
+                <aside class="sidebar">
+                    <div class="mod-history">
+                        <div class="mod-history-header">
+                            <h3>Processed Mods</h3>
+                            <button id="clear-history" class="btn-icon" title="Clear history">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <input type="text" id="mod-filter" class="filter-input" placeholder="Filter mods...">
+                        <div class="mod-list" id="mod-list"></div>
+                    </div>
+                </aside>
+
+                <div class="content-area">
+                    <div class="tabs">
+                        <button class="tab active" data-tab="results">Results</button>
+                        <button class="tab" data-tab="files">File Browser</button>
+                        <button class="tab" data-tab="statistics">Statistics</button>
+                        <button class="tab" data-tab="dependencies">Dependencies</button>
+                    </div>
+
+                    <div class="tab-content active" id="tab-results">
+                        <div class="tab-panel"></div>
+                    </div>
+
+                    <div class="tab-content" id="tab-files">
+                        <div class="tab-panel"></div>
+                    </div>
+
+                    <div class="tab-content" id="tab-statistics">
+                        <div class="tab-panel"></div>
+                    </div>
+
+                    <div class="tab-content" id="tab-dependencies">
+                        <div class="tab-panel"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <div id="loading-overlay" class="loading-overlay" style="display: none;">
+            <div class="loading-spinner"></div>
+            <p id="loading-text">Processing...</p>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script type="module" src="js/main.mjs"></script>
+</body>
+</html>

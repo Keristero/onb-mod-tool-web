@@ -1,0 +1,188 @@
+# mise configuration for ONB Mod Tool
+# https://mise.jdx.dev/
+
+[tasks.setup]
+description = "Set up build environment with nix-portable"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Setting up ONB Mod Tool build environment..."
+
+# Check if nix is available
+if command -v nix &> /dev/null; then
+    echo "✓ Nix is already installed"
+    exit 0
+fi
+
+# Check if nix-portable is available
+if command -v nix-portable &> /dev/null; then
+    echo "✓ nix-portable is already installed"
+    exit 0
+fi
+
+echo "Installing nix-portable..."
+
+# Create local bin directory
+mkdir -p ~/.local/bin
+
+# Download nix-portable
+curl -L https://github.com/DavHau/nix-portable/releases/latest/download/nix-portable-$(uname -m) -o ~/.local/bin/nix-portable
+
+# Make executable
+chmod +x ~/.local/bin/nix-portable
+
+# Add to PATH if not already there
+if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+    echo "Added ~/.local/bin to PATH in ~/.bashrc"
+    echo "Please run: source ~/.bashrc"
+fi
+
+echo "✓ nix-portable installed successfully"
+echo "Run 'source ~/.bashrc' or restart your terminal to use it"
+'''
+
+[tasks."build:native"]
+description = "Build native CLI executable"
+depends = ["setup"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Building native CLI executable..."
+
+cd /home/keristero/Documents/repos/mod-tool-keristerified/src
+
+# Use nix or nix-portable
+if command -v nix &> /dev/null; then
+    NIX_CMD="nix"
+elif command -v nix-portable &> /dev/null; then
+    NIX_CMD="nix-portable nix"
+else
+    echo "Error: Neither nix nor nix-portable found. Run 'mise run setup' first."
+    exit 1
+fi
+
+$NIX_CMD build -f default.nix native -o result-native
+
+echo "✓ Native executable built: result-native/bin/onb_mod_file"
+'''
+
+[tasks."build:web"]
+description = "Build WebAssembly module and copy to web/versions/latest/"
+depends = ["setup"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Building WebAssembly module..."
+
+cd /home/keristero/Documents/repos/mod-tool-keristerified/src
+
+# Use nix or nix-portable
+if command -v nix &> /dev/null; then
+    NIX_CMD="nix"
+elif command -v nix-portable &> /dev/null; then
+    NIX_CMD="nix-portable nix"
+else
+    echo "Error: Neither nix nor nix-portable found. Run 'mise run setup' first."
+    exit 1
+fi
+
+$NIX_CMD build -f default.nix wasm -o result-wasm
+
+# Create versions directory structure
+mkdir -p web/versions/latest
+
+# Copy WASM artifacts
+echo "Copying artifacts to web/versions/latest/..."
+# Resolve the actual nix store path and copy files
+WASM_PATH="$HOME/.nix-portable/nix/store/$(readlink result-wasm | sed 's|/nix/store/||')"
+if [ -f "$WASM_PATH/onb_mod_file.wasm" ]; then
+    cp "$WASM_PATH/onb_mod_file.wasm" web/versions/latest/
+    cp "$WASM_PATH/onb_mod_file.mjs" web/versions/latest/
+    cp "$WASM_PATH/metadata.json" web/versions/latest/
+else
+    echo "Error: WASM files not found at $WASM_PATH"
+    exit 1
+fi
+
+echo "✓ WebAssembly module built and copied to web/versions/latest/"
+'''
+
+[tasks.execute]
+description = "Run native CLI tool with arguments"
+alias = "run"
+depends = ["build:native"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /home/keristero/Documents/repos/mod-tool-keristerified/src
+
+if [ ! -f result-native/bin/onb_mod_file ]; then
+    echo "Error: Native executable not found. Run 'mise run build:native' first."
+    exit 1
+fi
+
+./result-native/bin/onb_mod_file "$@"
+'''
+
+[tasks."build:all"]
+description = "Build both native and web targets"
+depends = ["build:native", "build:web"]
+run = '''
+echo "✓ All builds complete"
+'''
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /home/keristero/Documents/repos/mod-tool-keristerified/src
+
+echo "Cleaning build artifacts..."
+
+rm -rf result-native result-wasm result
+
+echo "✓ Build artifacts cleaned"
+'''
+
+[tasks."serve:web"]
+description = "Serve web interface locally for testing"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /home/keristero/Documents/repos/mod-tool-keristerified/src/web
+
+if command -v python3 &> /dev/null; then
+    echo "Starting local server at http://localhost:8000"
+    python3 -m http.server 8000
+elif command -v python &> /dev/null; then
+    echo "Starting local server at http://localhost:8000"
+    python -m SimpleHTTPServer 8000
+else
+    echo "Error: Python not found. Install Python to use the local server."
+    exit 1
+fi
+'''
+
+[tasks.docs]
+description = "Generate task documentation"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "# Mise Tasks" > TASKS.md
+echo "" >> TASKS.md
+echo "This document is auto-generated from mise.toml" >> TASKS.md
+echo "" >> TASKS.md
+
+mise tasks --json | jq -r '.[] | "## \(.name)\n\n\(.description)\n\n**Usage:** `mise run \(.name)`\n"' >> TASKS.md
+
+echo "✓ Task documentation generated in TASKS.md"
+'''

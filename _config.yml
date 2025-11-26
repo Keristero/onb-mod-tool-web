@@ -1,0 +1,25 @@
+# GitHub Pages Configuration
+# This file is automatically read by GitHub Pages
+
+# Serve from root
+source: /
+
+# Use Jekyll processor (default)
+# Our site is static HTML/JS, so Jekyll will pass it through
+theme: null
+
+# Include these files
+include:
+  - .github
+  - src/web
+
+# Exclude build artifacts and dev files
+exclude:
+  - src/DartLangModTool-master
+  - src/default.nix
+  - src/mise.toml
+  - openspec
+  - old-interpreter-and-website
+  - .gitignore
+  - README.md
+  - IMPLEMENTATION_COMPLETE.md
