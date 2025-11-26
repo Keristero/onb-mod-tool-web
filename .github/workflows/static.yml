@@ -32,6 +32,10 @@ jobs:
           submodules: recursive
           ssh-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
       
+      - name: Update submodules to latest
+        run: |
+          (cd src/DartLangModTool-master && git pull origin master)
+      
       - name: Check version and decide whether to build
         id: version_check
         run: |
