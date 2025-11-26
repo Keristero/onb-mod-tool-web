@@ -154,8 +154,15 @@ jobs:
       - name: Commit new version
         if: github.event_name == 'workflow_dispatch'
         run: |
+          # Configure git to use HTTPS with token instead of SSH
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          
+          # Prevent git from trying to push submodule changes
+          git config push.recurseSubmodules no
+          
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          
           git add src/web/versions/
           git commit -m "Build and release v$VERSION"
           git push
