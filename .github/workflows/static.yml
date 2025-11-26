@@ -33,6 +33,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
       
       # Only build WASM on manual workflow dispatch
       - name: Install mise
@@ -185,8 +187,6 @@ jobs:
       
       - name: Setup Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
       
       - name: Upload artifact for Pages
         uses: actions/upload-pages-artifact@v3
