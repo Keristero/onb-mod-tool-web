@@ -16,12 +16,16 @@ in {
     src = dartToolSrc;
     
     # Explicitly handle source unpacking for filtered sources
-    sourceRoot = ".";
     unpackPhase = ''
-      cp -r $src source
+      runHook preUnpack
+      
+      cp -r "$src" source
       chmod -R u+w source
-      cd source
+      
+      runHook postUnpack
     '';
+    
+    sourceRoot = "source";
     
     nativeBuildInputs = with pkgs; [
       dart
@@ -58,12 +62,16 @@ in {
     src = dartToolSrc;
     
     # Explicitly handle source unpacking for filtered sources
-    sourceRoot = ".";
     unpackPhase = ''
-      cp -r $src source
+      runHook preUnpack
+      
+      cp -r "$src" source
       chmod -R u+w source
-      cd source
+      
+      runHook postUnpack
     '';
+    
+    sourceRoot = "source";
     
     nativeBuildInputs = with pkgs; [
       dart
