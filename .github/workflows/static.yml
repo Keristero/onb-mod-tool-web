@@ -1,17 +1,22 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
+# Deploy ONB Mod Analyzer to GitHub Pages
+name: Deploy to Pages
 
 on:
-  # Runs on pushes targeting the default branch
+  # Runs on pushes targeting the default branch (deploys existing files)
   push:
     branches: ["master"]
 
-  # Allows you to run this workflow manually from the Actions tab
+  # Allows you to manually trigger a new WASM build and deployment
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.2.3) - optional, auto-increments if not provided'
+        required: false
+        type: string
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -22,22 +27,197 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Single deploy job since we're just deploying
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      # Only build WASM on manual workflow dispatch
+      - name: Install mise
+        if: github.event_name == 'workflow_dispatch'
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      
+      - name: Determine version
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "Error: Version must be in semver format (e.g., 1.2.3)"
+              exit 1
+            fi
+          else
+            # Auto-increment patch version based on latest version in index
+            if [ -f src/web/versions/index.json ]; then
+              LATEST=$(jq -r 'sort_by(.version) | reverse | .[0].version // "v0.0.0"' src/web/versions/index.json)
+              PATCH=$(echo "$LATEST" | sed 's/v//' | cut -d. -f3)
+              MAJOR=$(echo "$LATEST" | sed 's/v//' | cut -d. -f1)
+              MINOR=$(echo "$LATEST" | sed 's/v//' | cut -d. -f2)
+              VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+            else
+              VERSION="0.0.1"
+            fi
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Building version: $VERSION"
+      
+      - name: Build WASM module
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          cd src
+          mise run build:web
+      
+      - name: Verify build artifacts
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          cd src
+          if [ ! -f web/versions/latest/onb_mod_file.wasm ]; then
+            echo "Error: WASM file not found"
+            exit 1
+          fi
+          if [ ! -f web/versions/latest/onb_mod_file.mjs ]; then
+            echo "Error: MJS file not found"
+            exit 1
+          fi
+          
+          # Check file sizes
+          WASM_SIZE=$(stat -c%s web/versions/latest/onb_mod_file.wasm)
+          echo "WASM size: $WASM_SIZE bytes"
+          
+          if [ $WASM_SIZE -lt 1000 ]; then
+            echo "Error: WASM file is suspiciously small"
+            exit 1
+          fi
+      
+      - name: Create versioned directory
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          cd src/web/versions
+          
+          # Create version directory
+          mkdir -p "v$VERSION"
+          
+          # Copy artifacts from latest (which was just built by mise)
+          cp latest/onb_mod_file.wasm "v$VERSION/"
+          cp latest/onb_mod_file.mjs "v$VERSION/"
+          cp latest/metadata.json "v$VERSION/"
+          
+          # Update metadata with correct version
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "v$VERSION/metadata.json"
+          
+          # Update latest metadata too
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" latest/metadata.json
+      
+      - name: Update version index
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          cd src/web/versions
+          
+          # Read existing index
+          if [ -f index.json ]; then
+            INDEX_CONTENT=$(cat index.json)
+          else
+            INDEX_CONTENT="[]"
+          fi
+          
+          # Add new version
+          NEW_VERSION=$(cat <<EOF
+          {
+            "version": "v$VERSION",
+            "latest": true,
+            "buildDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "features": [
+              "mod-analysis",
+              "lua-parsing",
+              "json-output"
+            ],
+            "description": "Production release v$VERSION"
+          }
+          EOF
+          )
+          
+          # Use jq to update the JSON (mark all as not latest, add new as latest)
+          echo "$INDEX_CONTENT" | jq --argjson new "$NEW_VERSION" \
+            'map(.latest = false) + [$new] | sort_by(.version) | reverse' \
+            > index.json
+          
+          cat index.json
+      
+      - name: Commit new version
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/web/versions/
+          git commit -m "Build and release v$VERSION"
+          git push
+      
+      - name: Generate build summary
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          cd src
+          WASM_SIZE=$(stat -c%s web/versions/latest/onb_mod_file.wasm | numfmt --to=iec-i --suffix=B)
+          MJS_SIZE=$(stat -c%s web/versions/latest/onb_mod_file.mjs | numfmt --to=iec-i --suffix=B)
+          
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          # Build Summary
+          
+          ## Version: $VERSION
+          
+          ### Artifacts
+          - **WASM**: $WASM_SIZE
+          - **MJS**: $MJS_SIZE
+          
+          ### Build Info
+          - **Date**: $(date -u +%Y-%m-%d\ %H:%M:%S\ UTC)
+          - **Commit**: ${{ github.sha }}
+          - **Workflow**: ${{ github.workflow }}
+          
+          ### Deployment
+          The analyzer will be available at:
+          \`https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/\`
+          EOF
+      
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      
+      - name: Upload artifact for Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: src/web
+  
   deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          # Upload entire repository
-          path: '.'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+      
+      - name: Verify deployment
+        run: |
+          sleep 10
+          
+          URL="${{ steps.deployment.outputs.page_url }}"
+          echo "Checking deployment at: $URL"
+          
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+          
+          if [ "$STATUS" -eq 200 ]; then
+            echo "✓ Deployment successful!"
+          else
+            echo "⚠ Deployment returned status: $STATUS"
+            exit 1
+          fi
