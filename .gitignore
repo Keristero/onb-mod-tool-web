@@ -1,8 +1,6 @@
 # Build outputs
 result
 result-*
-src/web/versions/latest/*
-!src/web/versions/latest/.gitkeep
 
 # Nix
 .nix-*
