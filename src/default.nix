@@ -2,7 +2,13 @@
 
 let
   # Source directory for DartLangModTool
-  dartToolSrc = ./DartLangModTool-master;
+  # Use cleanSourceWith to properly handle git submodules and filter out .git
+  dartToolSrc = pkgs.lib.cleanSourceWith {
+    src = ./DartLangModTool-master;
+    filter = path: type:
+      let baseName = baseNameOf path;
+      in !(baseName == ".git" || baseName == ".gitignore");
+  };
 
 in {
   # Native CLI build
