@@ -166,6 +166,25 @@ export default class BaseTab {
             
             // Function calls
             highlighted = highlighted.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g, '<span class="hljs-title function_">$1</span>(');
+        } else if (language === 'ani') {
+            // Keywords
+            const keywords = ['keyframe', 'key', 'animation', 'anim', 'point', 'true', 'false', '!image_path', '!frame_rate', '!app'];
+            keywords.forEach(keyword => {
+                const regex = new RegExp(`\\b(${keyword})\\b`, 'g');
+                highlighted = highlighted.replace(regex, '<span class="hljs-keyword">$1</span>');
+            });
+            
+            // Strings (including quotes)
+            highlighted = highlighted.replace(/(&quot;[^&]*?&quot;|'[^']*?')/g, '<span class="hljs-string">$1</span>');
+            
+            // Numbers
+            highlighted = highlighted.replace(/\b(\d+\.?\d*)\b/g, '<span class="hljs-number">$1</span>');
+            
+            // Comments
+            highlighted = highlighted.replace(/(#.*$)/gm, '<span class="hljs-comment">$1</span>');
+            
+            // Attributes
+            highlighted = highlighted.replace(/(\@\S+)/g, '<span class="hljs-title function_">$1</span>');
         } else if (language === 'json') {
             // JSON highlighting
             highlighted = highlighted.replace(/(&quot;[^&]*?&quot;):/g, '<span class="hljs-attr">$1</span>:');
