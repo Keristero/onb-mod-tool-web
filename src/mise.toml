@@ -52,8 +52,6 @@ set -euo pipefail
 
 echo "Building native CLI executable..."
 
-cd /home/keristero/Documents/repos/mod-tool-keristerified/src
-
 # Use nix or nix-portable
 if command -v nix &> /dev/null; then
     NIX_CMD="nix"
@@ -77,8 +75,6 @@ run = '''
 set -euo pipefail
 
 echo "Building WebAssembly module..."
-
-cd /home/keristero/Documents/repos/mod-tool-keristerified/src
 
 # Use nix or nix-portable
 if command -v nix &> /dev/null; then
@@ -119,8 +115,6 @@ run = '''
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /home/keristero/Documents/repos/mod-tool-keristerified/src
-
 if [ ! -f result-native/bin/onb_mod_file ]; then
     echo "Error: Native executable not found. Run 'mise run build:native' first."
     exit 1
@@ -142,8 +136,6 @@ run = '''
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /home/keristero/Documents/repos/mod-tool-keristerified/src
-
 echo "Cleaning build artifacts..."
 
 rm -rf result-native result-wasm result
@@ -157,7 +149,7 @@ run = '''
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /home/keristero/Documents/repos/mod-tool-keristerified/src/web
+cd web
 
 if command -v python3 &> /dev/null; then
     echo "Starting local server at http://localhost:8000"
