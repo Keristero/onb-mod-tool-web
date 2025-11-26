@@ -15,6 +15,14 @@ in {
     
     src = dartToolSrc;
     
+    # Explicitly handle source unpacking for filtered sources
+    sourceRoot = ".";
+    unpackPhase = ''
+      cp -r $src source
+      chmod -R u+w source
+      cd source
+    '';
+    
     nativeBuildInputs = with pkgs; [
       dart
     ];
@@ -48,6 +56,14 @@ in {
     version = "1.0.0";
     
     src = dartToolSrc;
+    
+    # Explicitly handle source unpacking for filtered sources
+    sourceRoot = ".";
+    unpackPhase = ''
+      cp -r $src source
+      chmod -R u+w source
+      cd source
+    '';
     
     nativeBuildInputs = with pkgs; [
       dart
