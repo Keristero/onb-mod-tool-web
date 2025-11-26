@@ -91,6 +91,9 @@ $NIX_CMD build -f default.nix wasm -o result-wasm
 # Create versions directory structure
 mkdir -p web/versions/latest
 
+# Make existing files writable before copying
+chmod -f u+w web/versions/latest/* 2>/dev/null || true
+
 # Copy WASM artifacts
 echo "Copying artifacts to web/versions/latest/..."
 # Resolve the actual nix store path and copy files
