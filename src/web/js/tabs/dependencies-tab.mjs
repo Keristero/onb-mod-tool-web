@@ -4,8 +4,9 @@ import * as parser from '../parser.mjs';
 import BaseTab from './base-tab.mjs';
 
 export default class DependenciesTab extends BaseTab {
-    constructor() {
+    constructor(app = null) {
         super();
+        this.app = app; // Reference to main app for tab switching
         this.sessionMods = []; // Reset on page load
         this.fileContainer = null;
         this.sessionContainer = null;
@@ -340,10 +341,8 @@ export default class DependenciesTab extends BaseTab {
             .selectAll('g')
             .data(nodes)
             .join('g')
-            .call(d3.drag()
-                .on('start', dragstarted)
-                .on('drag', dragged)
-                .on('end', dragended));
+            .style('cursor', d => (d.type === 'mod' || d.type === 'file') ? 'pointer' : 'default')
+            .on('click', (event, d) => this.handleNodeClick(event, d));
         
         // Add circles with different sizes for different node types
         node.append('circle')
@@ -385,24 +384,6 @@ export default class DependenciesTab extends BaseTab {
             
             node.attr('transform', d => `translate(${d.x},${d.y})`);
         });
-        
-        // Drag functions
-        function dragstarted(event) {
-            if (!event.active) simulation.alphaTarget(0.3).restart();
-            event.subject.fx = event.subject.x;
-            event.subject.fy = event.subject.y;
-        }
-        
-        function dragged(event) {
-            event.subject.fx = event.x;
-            event.subject.fy = event.y;
-        }
-        
-        function dragended(event) {
-            if (!event.active) simulation.alphaTarget(0);
-            event.subject.fx = null;
-            event.subject.fy = null;
-        }
         
         // Store graph for this mode
         if (mode === 'file') {
@@ -558,5 +539,47 @@ export default class DependenciesTab extends BaseTab {
         this.fileGraph = null;
         this.sessionGraph = null;
         this.render();
+    }
+    
+    async handleNodeClick(event, node) {
+        // Only handle clicks on mods and files
+        if (node.type === 'package' || !node.hasData) {
+            return; // External dependencies have no files to show
+        }
+        
+        if (!this.app) {
+            console.warn('No app reference, cannot switch tabs');
+            return;
+        }
+        
+        // Determine target mod and file path
+        const targetModId = node.type === 'mod' ? node.id : node.parentMod;
+        const targetFilePath = node.type === 'mod' ? 'entry.lua' : node.fullPath;
+        
+        // Find the mod in processedMods list
+        const modIndex = this.app.processedMods.findIndex(mod => {
+            if (!mod.parsed) return false;
+            const deps = parser.extractDependencies(mod.parsed);
+            return deps.packageId === targetModId;
+        });
+        
+        if (modIndex === -1) {
+            console.warn('Could not find mod with package ID:', targetModId);
+            return;
+        }
+        
+        // Switch to that mod and wait for it to fully load
+        await this.app.selectMod(modIndex);
+        
+        // Switch to files tab (this will trigger render)
+        this.app.switchTab('files');
+        
+        // Now select the specific file - need to wait for render to complete
+        await new Promise(resolve => setTimeout(resolve, 150));
+        
+        const fileBrowserTab = this.app.tabs.files;
+        if (fileBrowserTab && fileBrowserTab.selectFile) {
+            fileBrowserTab.selectFile(targetFilePath);
+        }
     }
 }

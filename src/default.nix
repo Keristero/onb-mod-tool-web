@@ -1,6 +1,9 @@
 { pkgs ? import <nixpkgs> {} }:
 
 let
+  # Use unstable channel for newer Dart SDK
+  unstable = import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") {};
+  
   # Source directory for DartLangModTool
   # Filter out .git directory to avoid permission issues with submodules
   dartToolSrc = builtins.filterSource
@@ -15,8 +18,8 @@ in {
     
     src = dartToolSrc;
     
-    nativeBuildInputs = with pkgs; [
-      dart
+    nativeBuildInputs = [
+      unstable.dart
     ];
     
     unpackPhase = ''
@@ -57,8 +60,8 @@ in {
     
     src = dartToolSrc;
     
-    nativeBuildInputs = with pkgs; [
-      dart
+    nativeBuildInputs = [
+      unstable.dart
     ];
     
     unpackPhase = ''

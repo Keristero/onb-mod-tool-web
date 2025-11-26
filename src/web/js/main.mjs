@@ -21,7 +21,7 @@ class ModAnalyzer {
             results: new ResultsTab(),
             files: new FileBrowserTab(),
             statistics: new StatisticsTab(),
-            dependencies: new DependenciesTab()
+            dependencies: new DependenciesTab(this) // Pass app reference
         };
         
         this.init();
