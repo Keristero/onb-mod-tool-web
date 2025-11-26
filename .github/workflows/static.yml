@@ -35,6 +35,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          ssh-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
       
       # Only build WASM on manual workflow dispatch
       - name: Install mise
