@@ -115,7 +115,11 @@ class ModAnalyzer {
     
     async loadVersions() {
         try {
-            const response = await fetch('../versions/index.json');
+            // Get the base path for the site (handles both local and GitHub Pages)
+            const basePath = window.location.pathname.replace(/\/[^/]*$/, '');
+            const versionsPath = basePath ? `${basePath}/versions/index.json` : 'versions/index.json';
+            
+            const response = await fetch(versionsPath);
             const versions = await response.json();
             
             if (versions.length === 0) {
