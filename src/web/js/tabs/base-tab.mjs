@@ -166,7 +166,7 @@ export default class BaseTab {
             
             // Function calls
             highlighted = highlighted.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g, '<span class="hljs-title function_">$1</span>(');
-        } else if (language === 'ani') {
+        } else if (language === 'animation') {
             // Keywords
             const keywords = ['keyframe', 'key', 'animation', 'anim', 'point', 'true', 'false', '!image_path', '!frame_rate', '!app'];
             keywords.forEach(keyword => {
