@@ -6,51 +6,74 @@ import BaseTab from './base-tab.mjs';
 export default class DependenciesTab extends BaseTab {
     constructor() {
         super();
-        this.allMods = [];
-        this.graph = null;
-        this.showOnlyCurrent = false;
+        this.sessionMods = []; // Reset on page load
+        this.fileContainer = null;
+        this.sessionContainer = null;
+        this.fileGraph = null;
+        this.sessionGraph = null;
     }
     
     async init(container) {
-        await super.init(container);
-        this.container.innerHTML = `
+        // Don't call super.init since we have two containers
+        this.container = container;
+        
+        // Get both sub-tab containers
+        this.fileContainer = document.querySelector('#sub-tab-dependencies-file .tab-panel');
+        this.sessionContainer = document.querySelector('#sub-tab-dependencies-session .tab-panel');
+        
+        // Initialize file view
+        this.fileContainer.innerHTML = `
             <div class="dependencies-view">
                 <div class="dependencies-header">
-                    <h2>Dependency Graph</h2>
+                    <h2>Current File Dependencies</h2>
                     <div class="dependencies-actions">
-                        <label style="margin-right: 1rem;">
-                            <input type="checkbox" id="show-only-current" />
-                            Show only current mod
-                        </label>
-                        <button id="export-graph-png" class="btn btn-secondary">Export PNG</button>
-                        <button id="export-graph-json" class="btn btn-secondary">Export JSON</button>
-                        <button id="reset-graph" class="btn btn-secondary">Reset View</button>
+                        <button id="export-file-graph-png" class="btn btn-secondary">Export PNG</button>
+                        <button id="export-file-graph-json" class="btn btn-secondary">Export JSON</button>
+                        <button id="reset-file-graph" class="btn btn-secondary">Reset View</button>
                     </div>
                 </div>
-                <div id="dependency-info" class="dependency-info"></div>
-                <div id="dependency-graph"></div>
+                <div id="file-dependency-info" class="dependency-info"></div>
+                <div id="file-dependency-graph"></div>
             </div>
         `;
         
-        // Event listeners
-        this.addEventListener(this.querySelector('#show-only-current'), 'change', (e) => {
-            this.showOnlyCurrent = e.target.checked;
-            this.render();
-        });
-        this.addEventListener(this.querySelector('#export-graph-png'), 'click', () => this.exportPNG());
-        this.addEventListener(this.querySelector('#export-graph-json'), 'click', () => this.exportJSON());
-        this.addEventListener(this.querySelector('#reset-graph'), 'click', () => this.resetGraph());
+        // Initialize session view
+        this.sessionContainer.innerHTML = `
+            <div class="dependencies-view">
+                <div class="dependencies-header">
+                    <h2>Session Dependencies</h2>
+                    <div class="dependencies-actions">
+                        <button id="export-session-graph-png" class="btn btn-secondary">Export PNG</button>
+                        <button id="export-session-graph-json" class="btn btn-secondary">Export JSON</button>
+                        <button id="reset-session-graph" class="btn btn-secondary">Reset View</button>
+                        <button id="clear-session-deps" class="btn btn-secondary">Clear Session</button>
+                    </div>
+                </div>
+                <div id="session-dependency-info" class="dependency-info"></div>
+                <div id="session-dependency-graph"></div>
+            </div>
+        `;
+        
+        // Event listeners for file view
+        this.fileContainer.querySelector('#export-file-graph-png')?.addEventListener('click', () => this.exportPNG('file'));
+        this.fileContainer.querySelector('#export-file-graph-json')?.addEventListener('click', () => this.exportJSON('file'));
+        this.fileContainer.querySelector('#reset-file-graph')?.addEventListener('click', () => this.resetGraph('file'));
+        
+        // Event listeners for session view
+        this.sessionContainer.querySelector('#export-session-graph-png')?.addEventListener('click', () => this.exportPNG('session'));
+        this.sessionContainer.querySelector('#export-session-graph-json')?.addEventListener('click', () => this.exportJSON('session'));
+        this.sessionContainer.querySelector('#reset-session-graph')?.addEventListener('click', () => this.resetGraph('session'));
+        this.sessionContainer.querySelector('#clear-session-deps')?.addEventListener('click', () => this.clearSessionDeps());
     }
     
     async onFileProcessed(mod) {
-        // Don't call super - we manage mods differently in dependencies tab
-        // Set as current mod but don't load zip (we track our own)
+        // Set as current mod
         this.currentMod = mod;
         
-        // Add to collection if not already there
-        const existing = this.allMods.find(m => m.id === mod.id);
+        // Add to session mods if not already there
+        const existing = this.sessionMods.find(m => m.id === mod.id);
         if (!existing && mod.parsed) {
-            this.allMods.push(mod);
+            this.sessionMods.push(mod);
         } else if (existing && mod.parsed) {
             // Update existing
             Object.assign(existing, mod);
@@ -58,38 +81,52 @@ export default class DependenciesTab extends BaseTab {
     }
     
     render() {
-        if (this.showOnlyCurrent && !this.currentMod) {
-            this.setHTML('#dependency-graph', 
+        // Render both views
+        this.renderFileDeps();
+        this.renderSessionDeps();
+    }
+    
+    renderFileDeps() {
+        if (!this.currentMod || !this.currentMod.parsed) {
+            this.setHTMLForContainer(this.fileContainer, '#file-dependency-graph', 
                 '<div class="empty-state">No mod selected. Process a mod to see its dependencies and file includes.</div>');
             return;
         }
         
-        if (!this.showOnlyCurrent && this.allMods.length === 0) {
-            this.setHTML('#dependency-graph', 
+        this.buildGraph('file', [this.currentMod]);
+    }
+    
+    renderSessionDeps() {
+        if (this.sessionMods.length === 0) {
+            this.setHTMLForContainer(this.sessionContainer, '#session-dependency-graph', 
                 '<div class="empty-state">No mods to display. Process some mods to see their dependencies.</div>');
             return;
         }
         
-        this.buildGraph();
-        this.displayInfo();
+        this.buildGraph('session', this.sessionMods);
     }
     
-    buildGraph() {
-        // Clear previous graph when in single-mod view and switching mods
-        if (this.showOnlyCurrent && this.svg && this.simulation) {
-            this.svg.selectAll('*').remove();
-            this.simulation.stop();
+    setHTMLForContainer(container, selector, html) {
+        const element = container.querySelector(selector);
+        if (element) {
+            element.innerHTML = html;
+        }
+    }
+    
+    buildGraph(mode, modsToProcess) {
+        const containerSelector = mode === 'file' ? '#file-dependency-graph' : '#session-dependency-graph';
+        const container = mode === 'file' ? this.fileContainer : this.sessionContainer;
+        const graphElement = container.querySelector(containerSelector);
+        
+        // Clear previous graph
+        if (graphElement) {
+            graphElement.innerHTML = '';
         }
         
         // Extract dependency data
         const nodes = [];
         const links = [];
         const nodeMap = new Map();
-        
-        // Determine which mods to process
-        const modsToProcess = this.showOnlyCurrent && this.currentMod 
-            ? [this.currentMod] 
-            : this.allMods;
         
         modsToProcess.forEach(mod => {
             if (!mod.parsed) return;
@@ -175,7 +212,7 @@ export default class DependenciesTab extends BaseTab {
         const cycles = this.detectCycles(nodes, links);
         
         // Render with D3
-        this.renderD3Graph(nodes, links, cycles);
+        this.renderD3Graph(nodes, links, cycles, mode, container, containerSelector);
     }
     
     detectCycles(nodes, links) {
@@ -228,15 +265,17 @@ export default class DependenciesTab extends BaseTab {
         return cycles;
     }
     
-    renderD3Graph(nodes, links, cycles) {
-        const container = this.container.querySelector('#dependency-graph');
-        container.innerHTML = '';
+    renderD3Graph(nodes, links, cycles, mode, container, containerSelector) {
+        const graphElement = container.querySelector(containerSelector);
+        if (!graphElement) return;
         
-        const width = container.clientWidth || 800;
+        graphElement.innerHTML = '';
+        
+        const width = graphElement.clientWidth || 800;
         const height = 600;
         
         // Create SVG
-        const svg = d3.select(container)
+        const svg = d3.select(graphElement)
             .append('svg')
             .attr('width', width)
             .attr('height', height)
@@ -365,25 +404,35 @@ export default class DependenciesTab extends BaseTab {
             event.subject.fy = null;
         }
         
-        this.graph = { svg, simulation, nodes, links, cycles };
+        // Store graph for this mode
+        if (mode === 'file') {
+            this.fileGraph = { svg, simulation, nodes, links, cycles };
+        } else {
+            this.sessionGraph = { svg, simulation, nodes, links, cycles };
+        }
+        
+        // Display info
+        this.displayInfo(mode, { nodes, links, cycles });
     }
     
-    displayInfo() {
-        const info = this.querySelector('#dependency-info');
+    displayInfo(mode, graph) {
+        const infoSelector = mode === 'file' ? '#file-dependency-info' : '#session-dependency-info';
+        const container = mode === 'file' ? this.fileContainer : this.sessionContainer;
+        const info = container.querySelector(infoSelector);
         
-        if (!this.graph) {
-            info.innerHTML = '';
+        if (!graph || !info) {
+            if (info) info.innerHTML = '';
             return;
         }
         
-        const { nodes, links, cycles } = this.graph;
+        const { nodes, links, cycles } = graph;
         const modNodes = nodes.filter(n => n.type === 'mod' || n.type === 'package');
         const fileNodes = nodes.filter(n => n.type === 'file');
         const externalNodes = nodes.filter(n => !n.hasData && n.type !== 'file').length;
         
-        const modeName = this.showOnlyCurrent && this.currentMod 
+        const modeName = mode === 'file' && this.currentMod 
             ? `Current: ${this.currentMod.parsed.name}` 
-            : 'All Mods';
+            : 'All Session Mods';
         
         info.innerHTML = `
             <div class="info-grid">
@@ -427,19 +476,25 @@ export default class DependenciesTab extends BaseTab {
         `;
     }
     
-    resetGraph() {
-        if (this.graph && this.graph.svg) {
-            const svg = d3.select(this.querySelector('svg'));
+    resetGraph(mode) {
+        const graph = mode === 'file' ? this.fileGraph : this.sessionGraph;
+        const container = mode === 'file' ? this.fileContainer : this.sessionContainer;
+        const svgSelector = mode === 'file' ? '#file-dependency-graph svg' : '#session-dependency-graph svg';
+        
+        if (graph && graph.svg) {
+            const svg = d3.select(container.querySelector(svgSelector));
             svg.transition()
                 .duration(750)
                 .call(d3.zoom().transform, d3.zoomIdentity);
             
-            this.graph.simulation.alpha(1).restart();
+            graph.simulation.alpha(1).restart();
         }
     }
     
-    exportPNG() {
-        const svg = this.querySelector('svg');
+    exportPNG(mode) {
+        const container = mode === 'file' ? this.fileContainer : this.sessionContainer;
+        const svgSelector = mode === 'file' ? '#file-dependency-graph svg' : '#session-dependency-graph svg';
+        const svg = container.querySelector(svgSelector);
         if (!svg) return;
         
         const svgData = new XMLSerializer().serializeToString(svg);
@@ -456,7 +511,7 @@ export default class DependenciesTab extends BaseTab {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'dependency-graph.png';
+                a.download = mode === 'file' ? 'file-dependency-graph.png' : 'session-dependency-graph.png';
                 a.click();
                 URL.revokeObjectURL(url);
             });
@@ -465,41 +520,43 @@ export default class DependenciesTab extends BaseTab {
         img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
     }
     
-    exportJSON() {
-        if (!this.graph) return;
+    exportJSON(mode) {
+        const graph = mode === 'file' ? this.fileGraph : this.sessionGraph;
+        if (!graph) return;
         
         const data = {
-            nodes: this.graph.nodes.map(n => ({
+            nodes: graph.nodes.map(n => ({
                 id: n.id,
                 name: n.name,
                 category: n.category,
                 hasData: n.hasData
             })),
-            links: this.graph.links.map(l => ({
+            links: graph.links.map(l => ({
                 source: l.source.id || l.source,
                 target: l.target.id || l.target
             })),
-            cycles: this.graph.cycles
+            cycles: graph.cycles
         };
         
         const json = JSON.stringify(data, null, 2);
-        this.downloadFile('dependency-graph.json', json, 'application/json');
+        const filename = mode === 'file' ? 'file-dependency-graph.json' : 'session-dependency-graph.json';
+        this.downloadFile(filename, json, 'application/json');
+    }
+    
+    clearSessionDeps() {
+        if (confirm('Clear all session dependencies? This cannot be undone.')) {
+            this.sessionMods = [];
+            this.sessionGraph = null;
+            this.render();
+        }
     }
     
     clear() {
-        // Clear the graph visualization
-        if (this.svg) {
-            this.svg.selectAll('*').remove();
-        }
-        if (this.simulation) {
-            this.simulation.stop();
-        }
-        
-        // Reset state
-        this.allMods = [];
+        // Clear session data on history clear
+        this.sessionMods = [];
         this.currentMod = null;
-        
-        // Clear info panel
-        this.setHTML('#graph-info', '');
+        this.fileGraph = null;
+        this.sessionGraph = null;
+        this.render();
     }
 }

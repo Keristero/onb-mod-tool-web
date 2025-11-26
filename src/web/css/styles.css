@@ -295,6 +295,47 @@ main {
     border-bottom-color: var(--primary-color);
 }
 
+/* Sub-Tabs */
+.sub-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--surface-color);
+    padding: 0 1rem;
+}
+
+.sub-tab {
+    padding: 0.625rem 1rem;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.sub-tab:hover {
+    color: var(--text-color);
+    background: var(--surface-hover);
+}
+
+.sub-tab.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.sub-tab-content {
+    display: none;
+    flex: 1;
+    overflow: hidden;
+}
+
+.sub-tab-content.active {
+    display: flex;
+    flex-direction: column;
+}
+
 /* Tab Content */
 .tab-content {
     display: none;

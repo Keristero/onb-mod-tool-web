@@ -71,11 +71,29 @@
                     </div>
 
                     <div class="tab-content" id="tab-statistics">
-                        <div class="tab-panel"></div>
+                        <div class="sub-tabs">
+                            <button class="sub-tab active" data-sub-tab="statistics-file">Current File</button>
+                            <button class="sub-tab" data-sub-tab="statistics-session">Session</button>
+                        </div>
+                        <div class="sub-tab-content active" id="sub-tab-statistics-file">
+                            <div class="tab-panel"></div>
+                        </div>
+                        <div class="sub-tab-content" id="sub-tab-statistics-session">
+                            <div class="tab-panel"></div>
+                        </div>
                     </div>
 
                     <div class="tab-content" id="tab-dependencies">
-                        <div class="tab-panel"></div>
+                        <div class="sub-tabs">
+                            <button class="sub-tab active" data-sub-tab="dependencies-file">Current File</button>
+                            <button class="sub-tab" data-sub-tab="dependencies-session">Session</button>
+                        </div>
+                        <div class="sub-tab-content active" id="sub-tab-dependencies-file">
+                            <div class="tab-panel"></div>
+                        </div>
+                        <div class="sub-tab-content" id="sub-tab-dependencies-session">
+                            <div class="tab-panel"></div>
+                        </div>
                     </div>
                 </div>
             </div>

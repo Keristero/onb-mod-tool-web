@@ -1,6 +1,66 @@
 // JSON parsing and formatting utilities
 
 /**
+ * Parse UUID to extract game, version, category, and name
+ * Format: game@version/category/name
+ * Example: "onb@2.0.0/player/MegamanBN6_falzar"
+ */
+export function parseUuid(uuid) {
+    if (!uuid || typeof uuid !== 'string') {
+        return {
+            game: 'unknown',
+            version: '0.0.0',
+            category: 'unknown',
+            name: 'unknown',
+            path: ''
+        };
+    }
+    
+    // Split by @ to get game and rest
+    const atSplit = uuid.split('@');
+    if (atSplit.length < 2) {
+        // No @ found, treat entire string as name
+        return {
+            game: 'unknown',
+            version: '0.0.0',
+            category: 'unknown',
+            name: uuid,
+            path: ''
+        };
+    }
+    
+    const game = atSplit[0];
+    const rest = atSplit[1];
+    
+    // Split by / to get version and path components
+    const slashSplit = rest.split('/');
+    if (slashSplit.length < 2) {
+        // Only version, no path
+        return {
+            game,
+            version: slashSplit[0],
+            category: 'unknown',
+            name: 'unknown',
+            path: ''
+        };
+    }
+    
+    const version = slashSplit[0];
+    const pathParts = slashSplit.slice(1);
+    const category = pathParts[0] || 'unknown';
+    const name = pathParts[pathParts.length - 1] || 'unknown';
+    const path = pathParts.join('/');
+    
+    return {
+        game,
+        version,
+        category,
+        name,
+        path
+    };
+}
+
+/**
  * Parse and validate mod analysis result
  */
 export function parseAnalysisResult(result) {
@@ -11,18 +71,36 @@ export function parseAnalysisResult(result) {
         };
     }
     
+    // Extract UUID information if available
+    const uuid = result.data.uuid || result.data.id || '';
+    const uuidInfo = parseUuid(uuid);
+    
+    // Prefer UUID-extracted values, fallback to direct fields
     return {
         valid: true,
-        id: result.data.id || 'unknown',
-        name: result.data.name || 'Unnamed Mod',
+        id: result.data.id || uuidInfo.name || 'unknown',
+        uuid: uuid,
+        game: uuidInfo.game,
+        name: result.data.name || uuidInfo.name || 'Unnamed Mod',
         description: result.data.description || '',
-        version: result.data.version || '0.0.0',
-        category: result.data.category || 'unknown',
+        version: uuidInfo.version || result.data.version || '0.0.0',
+        category: uuidInfo.category || result.data.category || 'unknown',
+        path: uuidInfo.path,
         bytes: result.data.bytes || 0,
         data: result.data.data || {},
         stdout: result.stdout || '',
         stderr: result.stderr || ''
     };
+}
+
+/**
+ * Clean error message by removing [line:column] prefix
+ * Example: "[193:20] Found TokenType.kDot..." -> "Found TokenType.kDot..."
+ */
+export function cleanErrorMessage(message) {
+    if (!message) return message;
+    // Remove [line:column] prefix
+    return message.replace(/^\[\d+:\d+\]\s*/, '');
 }
 
 /**
@@ -35,15 +113,54 @@ export function extractErrors(stderr) {
     const lines = stderr.split('\n');
     
     for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        
+        // Match ERR: prefix
         if (line.startsWith('ERR:')) {
             errors.push({
                 type: 'error',
-                message: line.substring(5).trim()
+                message: line.substring(5).trim(),
+                line: line.trim(),
+                isContext: false
             });
-        } else if (line.startsWith('WARN:')) {
+        } 
+        // Match WARN: prefix
+        else if (line.startsWith('WARN:')) {
             errors.push({
                 type: 'warning',
-                message: line.substring(6).trim()
+                message: line.substring(6).trim(),
+                line: line.trim(),
+                isContext: false
+            });
+        }
+        // Match parser errors with location format: [line:column] message
+        else if (/^\[\d+:\d+\]/.test(trimmed)) {
+            errors.push({
+                type: 'error',
+                message: trimmed,
+                line: trimmed,
+                isContext: false
+            });
+        }
+        // Match "Errors while evaluating" messages
+        // These are summary lines, not actual errors
+        else if (trimmed.startsWith('Errors while evaluating')) {
+            errors.push({
+                type: 'context',
+                message: trimmed,
+                line: trimmed,
+                isContext: true
+            });
+        }
+        // Match indented error context (lines starting with tab or spaces followed by "...")
+        // These are stack trace/context lines, not actual errors
+        else if (/^\s+\.\.\./.test(line)) {
+            errors.push({
+                type: 'context',
+                message: trimmed,
+                line: trimmed,
+                isContext: true
             });
         }
     }

@@ -92,6 +92,27 @@ export default class ResultsTab extends BaseTab {
             || stderr.split('\n').filter(l => l.trim().startsWith('ERR:')).length;
         const warnCount = stderr.split('\n').filter(l => l.trim().startsWith('WARN:')).length;
         
+        // Show UUID if available
+        const uuidRow = parsed.uuid ? `
+            <div class="summary-item">
+                <strong>UUID:</strong> ${parsed.uuid}
+            </div>
+        ` : '';
+        
+        // Show game if available
+        const gameRow = parsed.game && parsed.game !== 'unknown' ? `
+            <div class="summary-item">
+                <strong>Game:</strong> ${parsed.game}
+            </div>
+        ` : '';
+        
+        // Show path if available
+        const pathRow = parsed.path ? `
+            <div class="summary-item">
+                <strong>Path:</strong> ${parsed.path}
+            </div>
+        ` : '';
+        
         return `
             <div class="summary-grid">
                 <div class="summary-item">
@@ -100,12 +121,15 @@ export default class ResultsTab extends BaseTab {
                 <div class="summary-item">
                     <strong>ID:</strong> ${parsed.id}
                 </div>
+                ${uuidRow}
+                ${gameRow}
                 <div class="summary-item">
                     <strong>Version:</strong> ${parsed.version}
                 </div>
                 <div class="summary-item">
                     <strong>Category:</strong> ${parsed.category}
                 </div>
+                ${pathRow}
                 <div class="summary-item">
                     <strong>Size:</strong> ${parser.formatBytes(parsed.bytes)}
                 </div>

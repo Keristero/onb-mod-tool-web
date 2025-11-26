@@ -40,7 +40,9 @@ class ModAnalyzer {
             loadingOverlay: document.getElementById('loading-overlay'),
             loadingText: document.getElementById('loading-text'),
             tabButtons: document.querySelectorAll('.tab'),
-            tabContents: document.querySelectorAll('.tab-content')
+            tabContents: document.querySelectorAll('.tab-content'),
+            subTabButtons: document.querySelectorAll('.sub-tab'),
+            subTabContents: document.querySelectorAll('.sub-tab-content')
         };
         
         // Set up event listeners
@@ -109,6 +111,13 @@ class ModAnalyzer {
         this.elements.tabButtons.forEach(btn => {
             btn.addEventListener('click', () => {
                 this.switchTab(btn.dataset.tab);
+            });
+        });
+        
+        // Sub-tab switching
+        this.elements.subTabButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.switchSubTab(btn.dataset.subTab);
             });
         });
     }
@@ -390,6 +399,30 @@ class ModAnalyzer {
         
         // Render tab
         this.tabs[tabName].render();
+    }
+    
+    switchSubTab(subTabName) {
+        // Determine parent tab (statistics or dependencies)
+        const parentTab = subTabName.split('-')[0];
+        
+        // Update sub-tab buttons for this parent
+        const parentContainer = document.getElementById(`tab-${parentTab}`);
+        if (parentContainer) {
+            const subTabButtons = parentContainer.querySelectorAll('.sub-tab');
+            subTabButtons.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.subTab === subTabName);
+            });
+            
+            // Update sub-tab content
+            const subTabContents = parentContainer.querySelectorAll('.sub-tab-content');
+            subTabContents.forEach(content => {
+                const isActive = content.id === `sub-tab-${subTabName}`;
+                content.classList.toggle('active', isActive);
+            });
+        }
+        
+        // Re-render the parent tab to ensure both views are updated
+        this.tabs[parentTab].render();
     }
     
     async switchVersion(version) {

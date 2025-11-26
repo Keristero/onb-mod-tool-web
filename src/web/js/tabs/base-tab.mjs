@@ -148,6 +148,37 @@ export default class BaseTab {
         let highlighted = this.escapeHtml(code);
         
         if (language === 'lua') {
+            // First, mark comments with placeholders to protect them
+            const commentPlaceholders = [];
+            let commentIndex = 0;
+            
+            // Multi-line comments: --[[ ... ]] (with any trailing characters)
+            highlighted = highlighted.replace(/--\[\[([\s\S]*?)\]\].*$/gm, (match) => {
+                const placeholder = `__COMMENT_ML_${commentIndex}__`;
+                commentPlaceholders.push({ 
+                    placeholder, 
+                    html: `<span class="hljs-comment">${match}</span>` 
+                });
+                commentIndex++;
+                return placeholder;
+            });
+            
+            // Single-line comments: -- ...
+            highlighted = highlighted.replace(/(--.*$)/gm, (match) => {
+                const placeholder = `__COMMENT_SL_${commentIndex}__`;
+                commentPlaceholders.push({ 
+                    placeholder, 
+                    html: `<span class="hljs-comment">${match}</span>` 
+                });
+                commentIndex++;
+                return placeholder;
+            });
+            
+            // Now apply other syntax highlighting (keywords, strings, etc.)
+            
+            // Strings (including quotes)
+            highlighted = highlighted.replace(/(&quot;[^&]*?&quot;|'[^']*?')/g, '<span class="hljs-string">$1</span>');
+            
             // Keywords
             const keywords = ['local', 'function', 'end', 'if', 'then', 'else', 'elseif', 'for', 'while', 'do', 'repeat', 'until', 'return', 'break', 'and', 'or', 'not', 'in', 'true', 'false', 'nil'];
             keywords.forEach(keyword => {
@@ -155,17 +186,16 @@ export default class BaseTab {
                 highlighted = highlighted.replace(regex, '<span class="hljs-keyword">$1</span>');
             });
             
-            // Strings (including quotes)
-            highlighted = highlighted.replace(/(&quot;[^&]*?&quot;|'[^']*?')/g, '<span class="hljs-string">$1</span>');
-            
             // Numbers
             highlighted = highlighted.replace(/\b(\d+\.?\d*)\b/g, '<span class="hljs-number">$1</span>');
             
-            // Comments
-            highlighted = highlighted.replace(/(--.*$)/gm, '<span class="hljs-comment">$1</span>');
-            
             // Function calls
             highlighted = highlighted.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g, '<span class="hljs-title function_">$1</span>(');
+            
+            // Restore comments
+            commentPlaceholders.forEach(({ placeholder, html }) => {
+                highlighted = highlighted.replace(placeholder, html);
+            });
         } else if (language === 'animation') {
             // Keywords
             const keywords = ['keyframe', 'key', 'animation', 'anim', 'point', 'true', 'false', '!image_path', '!frame_rate', '!app'];
