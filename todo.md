@@ -16,6 +16,3 @@ b. in the dependency view, the old nodes are not removed from the state - so it 
 1. the results tab summary items should each have a computation and validation function that determines what they display. this will tidy up the code and allow us to set the border color of each cell based on if we think the current value is valid or not. for example ID should contain the uuid of the mod, but if that is not found it should be highlighted red.
 
 If the values are good, for example if Errors: 0, then we should give them a green border.
-
-
-eee
