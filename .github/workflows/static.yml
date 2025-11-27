@@ -34,7 +34,7 @@ jobs:
       
       - name: Update submodules to latest
         run: |
-          (cd src/DartLangModTool-master && git pull origin master)
+          (cd src/DartLangModTool-master && git fetch origin master && git reset --hard origin/master)
       
       - name: Check version and decide whether to build
         id: version_check
