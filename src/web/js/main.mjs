@@ -16,6 +16,10 @@ class ModAnalyzer {
         this.processingQueue = [];
         this.isProcessing = false;
         
+        // Performance optimization flags
+        this.renderDebounceTimer = null;
+        this.maxVisibleMods = 100; // Virtual scrolling threshold
+        
         // Tab modules
         this.tabs = {
             results: new ResultsTab(),
@@ -376,9 +380,39 @@ class ModAnalyzer {
     }
     
     renderModList() {
+        // Debounce rendering for better performance with many mods
+        if (this.renderDebounceTimer) {
+            clearTimeout(this.renderDebounceTimer);
+        }
+        
+        this.renderDebounceTimer = setTimeout(() => {
+            this._renderModListImmediate();
+        }, 16); // ~60fps
+    }
+    
+    _renderModListImmediate() {
         const filtered = this.getFilteredMods();
         
-        this.elements.modList.innerHTML = filtered.map((mod, index) => {
+        // Use DocumentFragment for better performance
+        const fragment = document.createDocumentFragment();
+        const tempDiv = document.createElement('div');
+        
+        // Limit visible items for virtual scrolling with large lists
+        const visibleMods = filtered.length > this.maxVisibleMods 
+            ? filtered.slice(0, this.maxVisibleMods)
+            : filtered;
+        
+        if (filtered.length > this.maxVisibleMods) {
+            // Show indicator for hidden mods
+            const hiddenCount = filtered.length - this.maxVisibleMods;
+            const indicator = document.createElement('div');
+            indicator.className = 'mod-list-indicator';
+            indicator.textContent = `Showing ${this.maxVisibleMods} of ${filtered.length} mods (${hiddenCount} hidden - use filter to narrow down)`;
+            fragment.appendChild(indicator);
+        }
+        
+        // Batch create elements
+        visibleMods.forEach(mod => {
             const actualIndex = this.processedMods.indexOf(mod);
             const statusClass = mod.status;
             const activeClass = actualIndex === this.currentModIndex ? 'active' : '';
@@ -392,21 +426,22 @@ class ModAnalyzer {
                 'failed': 'Fail'
             }[mod.status] || mod.status;
             
-            return `
-                <div class="mod-item ${statusClass} ${activeClass} ${categoryClass}" data-index="${actualIndex}">
-                    <div class="mod-item-name" title="${mod.fileName}">${mod.fileName}</div>
-                    <div class="mod-item-status">${statusText}</div>
-                </div>
+            const el = document.createElement('div');
+            el.className = `mod-item ${statusClass} ${activeClass} ${categoryClass}`;
+            el.dataset.index = actualIndex;
+            el.innerHTML = `
+                <div class="mod-item-name" title="${mod.fileName}">${mod.fileName}</div>
+                <div class="mod-item-status">${statusText}</div>
             `;
-        }).join('');
-        
-        // Add click handlers
-        this.elements.modList.querySelectorAll('.mod-item').forEach(el => {
-            el.addEventListener('click', async () => {
-                const index = parseInt(el.dataset.index);
-                await this.selectMod(index);
-            });
+            
+            // Add click handler directly
+            el.addEventListener('click', () => this.selectMod(actualIndex));
+            fragment.appendChild(el);
         });
+        
+        // Replace content in one operation
+        this.elements.modList.innerHTML = '';
+        this.elements.modList.appendChild(fragment);
     }
     
     getFilteredMods() {
@@ -437,10 +472,20 @@ class ModAnalyzer {
         }
         await Promise.all(promises);
         
-        // Render all tabs to ensure they're in sync
-        for (const tab of Object.values(this.tabs)) {
-            tab.render();
+        // Only render the currently active tab immediately
+        const activeTab = document.querySelector('.tab.active')?.dataset.tab;
+        if (activeTab && this.tabs[activeTab]) {
+            this.tabs[activeTab].render();
         }
+        
+        // Defer rendering of other tabs to avoid blocking
+        requestIdleCallback(() => {
+            for (const [name, tab] of Object.entries(this.tabs)) {
+                if (name !== activeTab) {
+                    tab.render();
+                }
+            }
+        }, { timeout: 1000 });
     }
     
     switchTab(tabName) {

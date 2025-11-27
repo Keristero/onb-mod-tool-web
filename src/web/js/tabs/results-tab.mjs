@@ -57,14 +57,20 @@ export default class ResultsTab extends BaseTab {
             mod.validationErrors = validationErrors;
             
             // Calculate three-tier status
-            // Treat 'err' category as parser failure
-            const hasParserError = mod.parsed.category === 'err' || mod.result.data?.category === 'err';
+            // Treat 'err' category or analyzer errors as parser failure
+            const hasParserError = mod.parsed.category === 'err' || 
+                                  mod.result.data?.category === 'err' ||
+                                  (mod.result && mod.result.success === false && mod.result.error);
             
             if (hasParserError) {
                 mod.status = 'failed';
                 // Set error message if not already set
                 if (!mod.error) {
-                    mod.error = 'Parser failure - mod category is "err"';
+                    if (mod.result && mod.result.error) {
+                        mod.error = `Analyzer error: ${mod.result.error}`;
+                    } else {
+                        mod.error = 'Parser failure - mod category is "err"';
+                    }
                 }
             } else if (validationErrors.length > 0) {
                 mod.status = 'validation-failed';

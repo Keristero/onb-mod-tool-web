@@ -10,6 +10,8 @@ export default class StatisticsTab extends BaseTab {
         this.currentView = 'file'; // 'file' or 'session'
         this.fileContainer = null;
         this.sessionContainer = null;
+        this.maxSessionMods = 500; // Limit for performance
+        this.renderDebounceTimer = null;
     }
     
     async init(container) {
@@ -66,7 +68,11 @@ export default class StatisticsTab extends BaseTab {
         // Add to session mods if not already there
         const existing = this.sessionMods.find(m => m.id === mod.id);
         if (!existing && mod.parsed) {
-            this.sessionMods.push(mod);
+            // Limit session mods to prevent performance issues
+            if (this.sessionMods.length >= this.maxSessionMods) {
+                this.sessionMods.pop(); // Remove oldest
+            }
+            this.sessionMods.unshift(mod); // Add to front
         } else if (existing && mod.parsed) {
             // Update existing
             Object.assign(existing, mod);
@@ -74,6 +80,17 @@ export default class StatisticsTab extends BaseTab {
     }
     
     render() {
+        // Debounce rendering for better performance
+        if (this.renderDebounceTimer) {
+            clearTimeout(this.renderDebounceTimer);
+        }
+        
+        this.renderDebounceTimer = setTimeout(() => {
+            this._renderImmediate();
+        }, 50);
+    }
+    
+    _renderImmediate() {
         // Render both views
         this.renderFileStats();
         this.renderSessionStats();
@@ -98,8 +115,14 @@ export default class StatisticsTab extends BaseTab {
             return;
         }
         
+        // Show warning if at limit
+        let limitWarning = '';
+        if (this.sessionMods.length >= this.maxSessionMods) {
+            limitWarning = `<div class="stats-warning">Showing statistics for most recent ${this.maxSessionMods} mods (limited for performance)</div>`;
+        }
+        
         const stats = this.calculateStats(this.sessionMods);
-        const html = this.renderStats(stats, 'session');
+        const html = limitWarning + this.renderStats(stats, 'session');
         this.setHTMLForContainer(this.sessionContainer, '#session-stats-content', html);
     }
     
@@ -127,32 +150,42 @@ export default class StatisticsTab extends BaseTab {
             errorsByFile: {},
             categories: {},
             totalErrors: 0,
-            parserErrors: 0,
             validationErrors: 0,
-            analyzerErrors: 0
+            analyzerErrors: 0,
+            stderrErrors: 0,
+            otherErrors: 0
         };
-        
-        // Analyzer error tracking
-        if (mod.result && mod.result.success === false && mod.result.error) {
-            stats.analyzerErrors = 1;
-            stats.errorTypes['Analyzer Error'] = 1;
-            stats.totalErrors += 1;
-        }
         
         // Validation error tracking
         if (mod.validationErrors && mod.validationErrors.length > 0) {
             stats.validationErrors = mod.validationErrors.length;
+            stats.errorTypes['Validation Errors'] = stats.validationErrors;
+            stats.totalErrors += stats.validationErrors;
         }
         
-        // Error analysis (parser errors)
+        // Analyzer error tracking (from result.error or category === 'err')
+        if (mod.result && mod.result.success === false && mod.result.error) {
+            stats.analyzerErrors += 1;
+            stats.errorTypes['Analyzer Errors'] = (stats.errorTypes['Analyzer Errors'] || 0) + 1;
+            stats.totalErrors += 1;
+        }
+        
+        // Check if mod category is 'err' (also an analyzer error)
+        if (mod.parsed && mod.parsed.category === 'err') {
+            stats.analyzerErrors += 1;
+            stats.errorTypes['Analyzer Errors'] = (stats.errorTypes['Analyzer Errors'] || 0) + 1;
+            stats.totalErrors += 1;
+        }
+        
+        // Stderr error tracking (from ErrorManager - parsed from stderr)
         if (mod.errors && mod.errors.length > 0) {
             stats.errorsByFile[mod.fileName] = mod.errors.length;
-            stats.parserErrors = mod.errors.length;
+            stats.stderrErrors = mod.errors.length;
+            stats.stderrErrors = mod.errors.length;
+            
+            stats.errorTypes['Stderr Errors'] = stats.stderrErrors;
             
             mod.errors.forEach(error => {
-                const type = this.categorizeError(error.message, false);
-                stats.errorTypes[type] = (stats.errorTypes[type] || 0) + 1;
-                
                 // Track individual error messages
                 // Exclude context/stack trace lines that start with "..."
                 // Exclude "Errors while evaluating" summary lines
@@ -169,13 +202,15 @@ export default class StatisticsTab extends BaseTab {
                 }
             });
             
-            stats.totalErrors = mod.errors.length;
+            stats.totalErrors += stats.stderrErrors;
         }
         
-        // Add validation errors to error types
+        // Add validation errors to error messages tracking
         if (mod.validationErrors && mod.validationErrors.length > 0) {
-            stats.errorTypes['Web Validation'] = mod.validationErrors.length;
-            stats.totalErrors += mod.validationErrors.length;
+            mod.validationErrors.forEach(error => {
+                const msg = `${error.field}: ${error.message}`;
+                stats.errorMessages[msg] = (stats.errorMessages[msg] || 0) + 1;
+            });
         }
         
         // Category
@@ -207,26 +242,45 @@ export default class StatisticsTab extends BaseTab {
         const errorTypes = {};
         const errorMessages = {};
         const errorsByFile = {};
-        let totalParserErrors = 0;
         let totalValidationErrors = 0;
         let totalAnalyzerErrors = 0;
+        let totalStderrErrors = 0;
+        let totalOtherErrors = 0;
         
         mods.forEach(mod => {
-            // Analyzer errors
-            if (mod.result && mod.result.success === false && mod.result.error) {
-                totalAnalyzerErrors += 1;
-                errorTypes['Analyzer Error'] = (errorTypes['Analyzer Error'] || 0) + 1;
+            // Validation errors
+            if (mod.validationErrors && mod.validationErrors.length > 0) {
+                totalValidationErrors += mod.validationErrors.length;
+                errorTypes['Validation Errors'] = (errorTypes['Validation Errors'] || 0) + mod.validationErrors.length;
+                
+                // Track individual validation error messages
+                mod.validationErrors.forEach(error => {
+                    const msg = `${error.field}: ${error.message}`;
+                    errorMessages[msg] = (errorMessages[msg] || 0) + 1;
+                });
             }
             
-            // Parser errors
+            // Analyzer errors (from result.error or category === 'err')
+            let hasAnalyzerError = false;
+            if (mod.result && mod.result.success === false && mod.result.error) {
+                hasAnalyzerError = true;
+            }
+            if (mod.parsed && mod.parsed.category === 'err') {
+                hasAnalyzerError = true;
+            }
+            if (hasAnalyzerError) {
+                totalAnalyzerErrors += 1;
+                errorTypes['Analyzer Errors'] = (errorTypes['Analyzer Errors'] || 0) + 1;
+            }
+            
+            // Stderr errors (from ErrorManager - parsed from stderr)
             if (mod.errors && mod.errors.length > 0) {
                 errorsByFile[mod.fileName] = mod.errors.length;
-                totalParserErrors += mod.errors.length;
+                totalStderrErrors += mod.errors.length;
+                errorTypes['Stderr Errors'] = (errorTypes['Stderr Errors'] || 0) + mod.errors.length;
+                errorTypes['Stderr Errors'] = (errorTypes['Stderr Errors'] || 0) + mod.errors.length;
                 
                 mod.errors.forEach(error => {
-                    const type = this.categorizeError(error.message, false);
-                    errorTypes[type] = (errorTypes[type] || 0) + 1;
-                    
                     // Track individual error messages
                     // Exclude context/stack trace lines that start with "..."
                     // Exclude "Errors while evaluating" summary lines
@@ -243,13 +297,10 @@ export default class StatisticsTab extends BaseTab {
                     }
                 });
             }
-            
-            // Validation errors
-            if (mod.validationErrors && mod.validationErrors.length > 0) {
-                totalValidationErrors += mod.validationErrors.length;
-                errorTypes['Web Validation'] = (errorTypes['Web Validation'] || 0) + mod.validationErrors.length;
-            }
         });
+        
+        // Calculate total errors
+        const totalErrors = totalValidationErrors + totalAnalyzerErrors + totalStderrErrors + totalOtherErrors;
         
         // Category breakdown
         const categories = {};
@@ -280,10 +331,11 @@ export default class StatisticsTab extends BaseTab {
             errorMessages,
             errorsByFile,
             categories,
-            totalErrors: totalParserErrors + totalValidationErrors + totalAnalyzerErrors,
-            parserErrors: totalParserErrors,
+            totalErrors,
             validationErrors: totalValidationErrors,
             analyzerErrors: totalAnalyzerErrors,
+            stderrErrors: totalStderrErrors,
+            otherErrors: totalOtherErrors,
             failedMods
         };
     }
@@ -292,58 +344,6 @@ export default class StatisticsTab extends BaseTab {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
-    }
-    
-    categorizeError(message, isValidationError = false) {
-        if (isValidationError) {
-            return 'Web Validation';
-        }
-        
-        const lowerMsg = message.toLowerCase();
-        
-        // Parser-specific errors with location [line:col]
-        if (/^\[\d+:\d+\]/.test(message)) {
-            if (lowerMsg.includes('missing') && lowerMsg.includes('parenthes')) {
-                return 'Missing Parentheses';
-            }
-            if (lowerMsg.includes('expected') && lowerMsg.includes('parenthes')) {
-                return 'Expected Parentheses';
-            }
-            if (lowerMsg.includes('expected literal') || lowerMsg.includes('expected.*variable')) {
-                return 'Expected Literal/Variable';
-            }
-            if (lowerMsg.includes('expected')) {
-                return 'Expected Token';
-            }
-            if (lowerMsg.includes('found') && lowerMsg.includes('tokentype')) {
-                return 'Unexpected Token';
-            }
-            return 'Parser Error';
-        }
-        
-        // File evaluation errors
-        if (lowerMsg.includes('errors while evaluating')) {
-            return 'File Evaluation Error';
-        }
-        
-        // Generic categorization
-        if (lowerMsg.includes('parse') || lowerMsg.includes('syntax')) {
-            return 'Syntax Error';
-        }
-        if (lowerMsg.includes('not found') || lowerMsg.includes('missing')) {
-            return 'Missing File/Resource';
-        }
-        if (lowerMsg.includes('invalid') || lowerMsg.includes('malformed')) {
-            return 'Invalid Format';
-        }
-        if (lowerMsg.includes('type')) {
-            return 'Type Error';
-        }
-        if (lowerMsg.includes('undefined') || lowerMsg.includes('nil')) {
-            return 'Undefined Reference';
-        }
-        
-        return 'Other';
     }
     
     renderStats(stats, mode) {
@@ -437,16 +437,20 @@ export default class StatisticsTab extends BaseTab {
                         <div class="stat-value" style="color: var(--error-color)">${stats.totalErrors}</div>
                     </div>
                     <div class="stat-card">
+                        <h3>Validation Errors</h3>
+                        <div class="stat-value" style="color: var(--warning-color)">${stats.validationErrors}</div>
+                    </div>
+                    <div class="stat-card">
                         <h3>Analyzer Errors</h3>
                         <div class="stat-value" style="color: var(--error-color)">${stats.analyzerErrors}</div>
                     </div>
                     <div class="stat-card">
-                        <h3>Parser Errors</h3>
-                        <div class="stat-value" style="color: var(--error-color)">${stats.parserErrors}</div>
+                        <h3>Stderr Errors</h3>
+                        <div class="stat-value" style="color: var(--error-color)">${stats.stderrErrors}</div>
                     </div>
                     <div class="stat-card">
-                        <h3>Validation Errors</h3>
-                        <div class="stat-value" style="color: var(--warning-color)">${stats.validationErrors}</div>
+                        <h3>Other Errors</h3>
+                        <div class="stat-value" style="color: var(--warning-color)">${stats.otherErrors}</div>
                     </div>
                     <div class="stat-card">
                         <h3>Category</h3>
@@ -495,12 +499,20 @@ export default class StatisticsTab extends BaseTab {
                     <div class="stat-value" style="color: var(--error-color)">${stats.totalErrors}</div>
                 </div>
                 <div class="stat-card">
-                    <h3>Parser Errors</h3>
-                    <div class="stat-value" style="color: var(--error-color)">${stats.parserErrors}</div>
-                </div>
-                <div class="stat-card">
                     <h3>Validation Errors</h3>
                     <div class="stat-value" style="color: var(--warning-color)">${stats.validationErrors}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Analyzer Errors</h3>
+                    <div class="stat-value" style="color: var(--error-color)">${stats.analyzerErrors}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Stderr Errors</h3>
+                    <div class="stat-value" style="color: var(--error-color)">${stats.stderrErrors}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Other Errors</h3>
+                    <div class="stat-value" style="color: var(--warning-color)">${stats.otherErrors}</div>
                 </div>
             </div>
         `;
@@ -587,23 +599,24 @@ export default class StatisticsTab extends BaseTab {
     }
     
     renderErrorDistributionChart(stats) {
-        const parserErrors = stats.parserErrors || 0;
         const validationErrors = stats.validationErrors || 0;
-        const totalErrors = parserErrors + validationErrors;
+        const analyzerErrors = stats.analyzerErrors || 0;
+        const stderrErrors = stats.stderrErrors || 0;
+        const otherErrors = stats.otherErrors || 0;
+        const totalErrors = validationErrors + analyzerErrors + stderrErrors + otherErrors;
         
         if (totalErrors === 0) {
             return '<div class="empty-state">No errors recorded</div>';
         }
         
-        const parserPercent = (parserErrors / totalErrors) * 100;
-        const validationPercent = (validationErrors / totalErrors) * 100;
-        
-        // Create pie chart
+        // Create pie chart with 4 categories
         const radius = 80;
         const center = 100;
         
-        const parserAngle = (parserErrors / totalErrors) * 360;
         const validationAngle = (validationErrors / totalErrors) * 360;
+        const analyzerAngle = (analyzerErrors / totalErrors) * 360;
+        const stderrAngle = (stderrErrors / totalErrors) * 360;
+        const otherAngle = (otherErrors / totalErrors) * 360;
         
         const createArc = (startAngle, endAngle, color) => {
             if (endAngle - startAngle === 0) return '';
@@ -618,12 +631,24 @@ export default class StatisticsTab extends BaseTab {
             return `<path d="M ${center} ${center} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z" fill="${color}" />`;
         };
         
+        let currentAngle = 0;
         let chartPaths = '';
-        if (parserErrors > 0) {
-            chartPaths += createArc(0, parserAngle, 'var(--error-color)');
-        }
+        
         if (validationErrors > 0) {
-            chartPaths += createArc(parserAngle, parserAngle + validationAngle, 'var(--warning-color)');
+            chartPaths += createArc(currentAngle, currentAngle + validationAngle, 'var(--warning-color)');
+            currentAngle += validationAngle;
+        }
+        if (analyzerErrors > 0) {
+            chartPaths += createArc(currentAngle, currentAngle + analyzerAngle, 'var(--error-color)');
+            currentAngle += analyzerAngle;
+        }
+        if (stderrErrors > 0) {
+            chartPaths += createArc(currentAngle, currentAngle + stderrAngle, '#dc143c');
+            currentAngle += stderrAngle;
+        }
+        if (otherErrors > 0) {
+            chartPaths += createArc(currentAngle, currentAngle + otherAngle, '#888');
+            currentAngle += otherAngle;
         }
         
         return `
@@ -632,8 +657,10 @@ export default class StatisticsTab extends BaseTab {
                     ${chartPaths}
                 </svg>
                 <div class="chart-legend">
-                    <div><span style="color: var(--error-color)">●</span> Parser Errors: ${parserErrors} (${parserPercent.toFixed(1)}%)</div>
-                    <div><span style="color: var(--warning-color)">●</span> Validation Errors: ${validationErrors} (${validationPercent.toFixed(1)}%)</div>
+                    <div><span style="color: var(--warning-color)">●</span> Validation: ${validationErrors} (${((validationErrors / totalErrors) * 100).toFixed(1)}%)</div>
+                    <div><span style="color: var(--error-color)">●</span> Analyzer: ${analyzerErrors} (${((analyzerErrors / totalErrors) * 100).toFixed(1)}%)</div>
+                    <div><span style="color: #dc143c">●</span> Stderr: ${stderrErrors} (${((stderrErrors / totalErrors) * 100).toFixed(1)}%)</div>
+                    <div><span style="color: #888">●</span> Other: ${otherErrors} (${((otherErrors / totalErrors) * 100).toFixed(1)}%)</div>
                 </div>
             </div>
         `;
@@ -751,12 +778,14 @@ export default class StatisticsTab extends BaseTab {
     
     exportCSV(mode) {
         const mods = mode === 'file' && this.currentMod ? [this.currentMod] : this.sessionMods;
-        const headers = ['Filename', 'Status', 'Validation Status', 'Category', 'Parser Errors', 'Validation Errors', 'Warnings', 'Processing Time (ms)', 'Size (bytes)', 'Validation Error Details', 'Timestamp'];
+        const headers = ['Filename', 'Status', 'Validation Status', 'Category', 'Validation Errors', 'Analyzer Errors', 'Stderr Errors', 'Other Errors', 'Warnings', 'Processing Time (ms)', 'Size (bytes)', 'Validation Error Details', 'Timestamp'];
         const rows = mods.map(mod => {
             const validationStatus = mod.status === 'validation-failed' ? 'Validation Failed' : 
                                     mod.status === 'failed' ? 'Failed' : 'Success';
-            const parserErrors = mod.errors?.filter(e => e.type === 'error').length || 0;
             const validationErrors = mod.validationErrors?.length || 0;
+            const analyzerErrors = ((mod.result && mod.result.success === false && mod.result.error) ? 1 : 0) + 
+                                  ((mod.parsed && mod.parsed.category === 'err') ? 1 : 0);
+            const stderrErrors = mod.errors?.filter(e => e.type === 'error').length || 0;
             const validationDetails = mod.validationErrors?.map(e => `${e.field}: ${e.message}`).join('; ') || '';
             
             return [
@@ -764,8 +793,10 @@ export default class StatisticsTab extends BaseTab {
                 mod.status,
                 validationStatus,
                 mod.parsed?.category || '',
-                parserErrors,
                 validationErrors,
+                analyzerErrors,
+                stderrErrors,
+                0, // other errors placeholder
                 mod.errors?.filter(e => e.type === 'warning').length || 0,
                 mod.processingTime || 0,
                 mod.fileSize || 0,
@@ -797,15 +828,19 @@ export default class StatisticsTab extends BaseTab {
         <validationSuccessRate>${stats.validationSuccessRate}</validationSuccessRate>
         <avgProcessingTime>${stats.avgTime}</avgProcessingTime>
         <totalErrors>${stats.totalErrors}</totalErrors>
-        <parserErrors>${stats.parserErrors}</parserErrors>
         <validationErrors>${stats.validationErrors}</validationErrors>
+        <analyzerErrors>${stats.analyzerErrors}</analyzerErrors>
+        <stderrErrors>${stats.stderrErrors}</stderrErrors>
+        <otherErrors>${stats.otherErrors}</otherErrors>
     </summary>
     <mods>
         ${mods.map(mod => {
             const validationStatus = mod.status === 'validation-failed' ? 'Validation Failed' : 
                                     mod.status === 'failed' ? 'Failed' : 'Success';
-            const parserErrors = mod.errors?.filter(e => e.type === 'error').length || 0;
             const validationErrorCount = mod.validationErrors?.length || 0;
+            const stderrErrorCount = mod.errors?.filter(e => e.type === 'error').length || 0;
+            const analyzerErrors = ((mod.result && mod.result.success === false && mod.result.error) ? 1 : 0) + 
+                                  ((mod.parsed && mod.parsed.category === 'err') ? 1 : 0);
             
             return `
         <mod>
@@ -815,16 +850,20 @@ export default class StatisticsTab extends BaseTab {
             <category>${this.escapeXml(mod.parsed?.category || '')}</category>
             <processingTime>${mod.processingTime || 0}</processingTime>
             <size>${mod.fileSize || 0}</size>
-            <parserErrors count="${parserErrors}">
-                ${(mod.errors || []).map(e => `
-                <error type="${this.escapeXml(e.type)}">${this.escapeXml(e.message)}</error>
-                `).join('')}
-            </parserErrors>
             <validationErrors count="${validationErrorCount}">
                 ${(mod.validationErrors || []).map(e => `
                 <error field="${this.escapeXml(e.field)}">${this.escapeXml(e.message)}</error>
                 `).join('')}
             </validationErrors>
+            <analyzerErrors count="${analyzerErrors}">
+                ${(mod.result && mod.result.error) ? `<error>${this.escapeXml(mod.result.error)}</error>` : ''}
+                ${(mod.parsed && mod.parsed.category === 'err') ? '<error>Mod category is "err"</error>' : ''}
+            </analyzerErrors>
+            <stderrErrors count="${stderrErrorCount}">
+                ${(mod.errors || []).map(e => `
+                <error type="${this.escapeXml(e.type)}">${this.escapeXml(e.message)}</error>
+                `).join('')}
+            </stderrErrors>
         </mod>
             `;
         }).join('')}

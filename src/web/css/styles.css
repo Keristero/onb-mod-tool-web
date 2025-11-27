@@ -242,6 +242,18 @@ main {
     background: var(--text-secondary);
 }
 
+/* Mod list indicator for large datasets */
+.mod-list-indicator {
+    padding: 12px;
+    background: var(--warning-color);
+    color: var(--bg-color);
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
 .mod-item {
     padding: 0.75rem;
     margin-bottom: 0.5rem;
@@ -1518,4 +1530,16 @@ main {
     .info-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* Performance optimization styles */
+.stats-warning {
+    padding: 12px;
+    background: var(--warning-color);
+    color: var(--bg-color);
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border-radius: 4px;
+    margin-bottom: 16px;
 }
