@@ -358,7 +358,10 @@ export default class DependenciesTab extends BaseTab {
         
         // Add labels
         node.append('text')
-            .text(d => d.name.length > 15 ? d.name.slice(0, 12) + '...' : d.name)
+            .text(d => {
+                const name = d.name || 'unknown';
+                return name.length > 15 ? name.slice(0, 12) + '...' : name;
+            })
             .attr('x', 0)
             .attr('y', d => d.type === 'file' ? 25 : 35)
             .attr('text-anchor', 'middle')

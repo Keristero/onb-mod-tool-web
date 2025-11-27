@@ -119,7 +119,7 @@ self.addEventListener('message', async (event) => {
                 
             case 'switch-version':
                 wasmReady = false;
-                wasmModule = null;
+                wasmInstance = null;
                 const switchResult = await loadWasm(payload.version);
                 self.postMessage({
                     type: 'version-switched',
