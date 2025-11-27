@@ -6,7 +6,7 @@ Browser-based WebAssembly analyzer for One Night Battle mod files.
 
 **Web Interface:**
 
-Visit: https://keristero.github.io/mod-tool-keristerified/
+Visit: [https://keristero.github.io/onb-mod-tool-web/](https://keristero.github.io/onb-mod-tool-web/)
 
 **Local Development:**
 
