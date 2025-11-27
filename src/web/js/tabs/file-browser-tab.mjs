@@ -19,16 +19,21 @@ export default class FileBrowserTab extends BaseTab {
             <div class="file-browser">
                 <div class="file-tree-container">
                     <h3>Files</h3>
-                    <div id="file-tree" class="file-tree"></div>
-                </div>
-                <div class="file-preview-container">
-                    <div class="file-preview-header">
-                        <h3 id="preview-filename">Select a file</h3>
+                    <div class="file-tree-scroll-wrapper">
+                        <div id="file-tree" class="file-tree"></div>
                     </div>
-                    <div id="file-preview" class="file-preview"></div>
+                </div>
+                <div class="resize-handle"></div>
+                <div class="file-preview-container">
+                    <h3 id="preview-filename">Select a file</h3>
+                    <div class="file-preview-scroll-wrapper">
+                        <div id="file-preview" class="file-preview"></div>
+                    </div>
                 </div>
             </div>
         `;
+        
+        this.setupResizer();
     }
     
     async onFileProcessed(mod) {
@@ -66,6 +71,24 @@ export default class FileBrowserTab extends BaseTab {
         // Add click handlers
         this.addEventListeners('.file-tree-item[data-path]', 'click', (e) => {
             this.selectFile(e.target.dataset.path);
+        });
+        
+        // Add folder toggle handlers
+        this.addEventListeners('.folder-header', 'click', (e) => {
+            const folderHeader = e.target.closest('.folder-header');
+            if (!folderHeader) return;
+            
+            const folder = folderHeader.parentElement;
+            const childrenDiv = folder.querySelector('.folder-children');
+            const icon = folderHeader.querySelector('.folder-icon');
+            
+            if (childrenDiv) {
+                const isCollapsed = childrenDiv.style.display === 'none';
+                childrenDiv.style.display = isCollapsed ? '' : 'none';
+                if (icon) {
+                    icon.textContent = isCollapsed ? '📁' : '📂';
+                }
+            }
         });
     }
     
@@ -124,7 +147,9 @@ export default class FileBrowserTab extends BaseTab {
         
         return `
             <div class="file-tree-folder" style="padding-left: ${level * 10}px">
-                <div class="folder-header">📁 ${node.name}</div>
+                <div class="folder-header" data-folder="${node.name}">
+                    <span class="folder-icon">📁</span> ${node.name}
+                </div>
                 <div class="folder-children">${childrenHtml}</div>
             </div>
         `;
@@ -367,5 +392,45 @@ export default class FileBrowserTab extends BaseTab {
             this.setHTML('#file-tree', '<div class="empty-state">No files</div>');
             this.setHTML('#file-preview', '');
         }
+    }
+    
+    setupResizer() {
+        const resizeHandle = this.container.querySelector('.resize-handle');
+        const fileTreeContainer = this.container.querySelector('.file-tree-container');
+        const fileBrowser = this.container.querySelector('.file-browser');
+        
+        if (!resizeHandle || !fileTreeContainer || !fileBrowser) return;
+        
+        let isResizing = false;
+        let startX = 0;
+        let startWidth = 0;
+        
+        resizeHandle.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            startX = e.clientX;
+            startWidth = fileTreeContainer.offsetWidth;
+            
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            
+            e.preventDefault();
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            
+            const delta = e.clientX - startX;
+            const newWidth = Math.max(150, Math.min(600, startWidth + delta));
+            
+            fileBrowser.style.gridTemplateColumns = `${newWidth}px 4px 1fr`;
+        });
+        
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
+        });
     }
 }

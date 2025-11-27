@@ -327,6 +327,8 @@ class ModAnalyzer {
             const actualIndex = this.processedMods.indexOf(mod);
             const statusClass = mod.status;
             const activeClass = actualIndex === this.currentModIndex ? 'active' : '';
+            const category = mod.parsed?.category || 'unknown';
+            const categoryClass = `mod-category-${category.toLowerCase()}`;
             
             const statusText = {
                 'processing': 'Processing...',
@@ -335,7 +337,7 @@ class ModAnalyzer {
             }[mod.status] || mod.status;
             
             return `
-                <div class="mod-item ${statusClass} ${activeClass}" data-index="${actualIndex}">
+                <div class="mod-item ${statusClass} ${activeClass} ${categoryClass}" data-index="${actualIndex}">
                     <div class="mod-item-name" title="${mod.fileName}">${mod.fileName}</div>
                     <div class="mod-item-status">${statusText}</div>
                 </div>
