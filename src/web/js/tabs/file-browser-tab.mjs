@@ -39,6 +39,10 @@ export default class FileBrowserTab extends BaseTab {
     async onFileProcessed(mod) {
         await super.onFileProcessed(mod);
         
+        // Clear previous errors
+        this.errorManager.errorsByFile.clear();
+        this.errorManager.rawStderr = '';
+        
         // Parse errors for this mod
         if (mod.result?.stderr) {
             this.errorManager.parseErrors(mod.result.stderr);

@@ -134,7 +134,7 @@ export default class StatisticsTab extends BaseTab {
     }
     
     calculateStatsForMod(mod) {
-        // Calculate statistics for a single mod
+        // Calculate statistics for a single mod using pre-categorized errors
         const stats = {
             total: 1,
             successful: mod.status === 'success' ? 1 : 0,
@@ -156,60 +156,48 @@ export default class StatisticsTab extends BaseTab {
             otherErrors: 0
         };
         
-        // Validation error tracking
-        if (mod.validationErrors && mod.validationErrors.length > 0) {
-            stats.validationErrors = mod.validationErrors.length;
+        // Use pre-categorized errors
+        stats.validationErrors = mod.errorCategories?.validation?.length || 0;
+        stats.analyzerErrors = mod.errorCategories?.analyzer?.length || 0;
+        stats.stderrErrors = mod.errorCategories?.stderr?.length || 0;
+        stats.otherErrors = mod.errorCategories?.other?.length || 0;
+        
+        if (stats.validationErrors > 0) {
             stats.errorTypes['Validation Errors'] = stats.validationErrors;
-            stats.totalErrors += stats.validationErrors;
         }
-        
-        // Analyzer error tracking (from result.error or category === 'err')
-        if (mod.result && mod.result.success === false && mod.result.error) {
-            stats.analyzerErrors += 1;
-            stats.errorTypes['Analyzer Errors'] = (stats.errorTypes['Analyzer Errors'] || 0) + 1;
-            stats.totalErrors += 1;
+        if (stats.analyzerErrors > 0) {
+            stats.errorTypes['Analyzer Errors'] = stats.analyzerErrors;
         }
-        
-        // Check if mod category is 'err' (also an analyzer error)
-        if (mod.parsed && mod.parsed.category === 'err') {
-            stats.analyzerErrors += 1;
-            stats.errorTypes['Analyzer Errors'] = (stats.errorTypes['Analyzer Errors'] || 0) + 1;
-            stats.totalErrors += 1;
-        }
-        
-        // Stderr error tracking (from ErrorManager - parsed from stderr)
-        if (mod.errors && mod.errors.length > 0) {
-            stats.errorsByFile[mod.fileName] = mod.errors.length;
-            stats.stderrErrors = mod.errors.length;
-            stats.stderrErrors = mod.errors.length;
-            
+        if (stats.stderrErrors > 0) {
             stats.errorTypes['Stderr Errors'] = stats.stderrErrors;
-            
-            mod.errors.forEach(error => {
-                // Track individual error messages
-                // Exclude context/stack trace lines that start with "..."
-                // Exclude "Errors while evaluating" summary lines
+        }
+        if (stats.otherErrors > 0) {
+            stats.errorTypes['Other Errors'] = stats.otherErrors;
+        }
+        
+        stats.totalErrors = stats.validationErrors + stats.analyzerErrors + stats.stderrErrors + stats.otherErrors;
+        
+        // Track individual error messages
+        if (mod.errorCategories?.validation) {
+            mod.errorCategories.validation.forEach(error => {
+                const msg = `${error.field}: ${error.message}`;
+                stats.errorMessages[msg] = (stats.errorMessages[msg] || 0) + 1;
+            });
+        }
+        
+        if (mod.errorCategories?.stderr) {
+            stats.errorsByFile[mod.fileName] = mod.errorCategories.stderr.length;
+            mod.errorCategories.stderr.forEach(error => {
                 const msg = error.message || error.line || '';
                 const isStackTrace = msg.trim().startsWith('...');
                 const isEvalError = msg.startsWith('Errors while evaluating');
                 
                 if (!isStackTrace && !isEvalError && msg) {
-                    // Clean the message by removing [line:column] prefix
                     const cleanMsg = parser.cleanErrorMessage(msg);
                     if (cleanMsg) {
                         stats.errorMessages[cleanMsg] = (stats.errorMessages[cleanMsg] || 0) + 1;
                     }
                 }
-            });
-            
-            stats.totalErrors += stats.stderrErrors;
-        }
-        
-        // Add validation errors to error messages tracking
-        if (mod.validationErrors && mod.validationErrors.length > 0) {
-            mod.validationErrors.forEach(error => {
-                const msg = `${error.field}: ${error.message}`;
-                stats.errorMessages[msg] = (stats.errorMessages[msg] || 0) + 1;
             });
         }
         
@@ -248,48 +236,46 @@ export default class StatisticsTab extends BaseTab {
         let totalOtherErrors = 0;
         
         mods.forEach(mod => {
-            // Validation errors
-            if (mod.validationErrors && mod.validationErrors.length > 0) {
-                totalValidationErrors += mod.validationErrors.length;
-                errorTypes['Validation Errors'] = (errorTypes['Validation Errors'] || 0) + mod.validationErrors.length;
-                
-                // Track individual validation error messages
-                mod.validationErrors.forEach(error => {
+            // Use pre-categorized errors
+            const valErrors = mod.errorCategories?.validation?.length || 0;
+            const analErrors = mod.errorCategories?.analyzer?.length || 0;
+            const stderrErrs = mod.errorCategories?.stderr?.length || 0;
+            const othErrors = mod.errorCategories?.other?.length || 0;
+            
+            totalValidationErrors += valErrors;
+            totalAnalyzerErrors += analErrors;
+            totalStderrErrors += stderrErrs;
+            totalOtherErrors += othErrors;
+            
+            if (valErrors > 0) {
+                errorTypes['Validation Errors'] = (errorTypes['Validation Errors'] || 0) + valErrors;
+            }
+            if (analErrors > 0) {
+                errorTypes['Analyzer Errors'] = (errorTypes['Analyzer Errors'] || 0) + analErrors;
+            }
+            if (stderrErrs > 0) {
+                errorTypes['Stderr Errors'] = (errorTypes['Stderr Errors'] || 0) + stderrErrs;
+                errorsByFile[mod.fileName] = stderrErrs;
+            }
+            if (othErrors > 0) {
+                errorTypes['Other Errors'] = (errorTypes['Other Errors'] || 0) + othErrors;
+            }
+            
+            // Track individual error messages
+            if (mod.errorCategories?.validation) {
+                mod.errorCategories.validation.forEach(error => {
                     const msg = `${error.field}: ${error.message}`;
                     errorMessages[msg] = (errorMessages[msg] || 0) + 1;
                 });
             }
             
-            // Analyzer errors (from result.error or category === 'err')
-            let hasAnalyzerError = false;
-            if (mod.result && mod.result.success === false && mod.result.error) {
-                hasAnalyzerError = true;
-            }
-            if (mod.parsed && mod.parsed.category === 'err') {
-                hasAnalyzerError = true;
-            }
-            if (hasAnalyzerError) {
-                totalAnalyzerErrors += 1;
-                errorTypes['Analyzer Errors'] = (errorTypes['Analyzer Errors'] || 0) + 1;
-            }
-            
-            // Stderr errors (from ErrorManager - parsed from stderr)
-            if (mod.errors && mod.errors.length > 0) {
-                errorsByFile[mod.fileName] = mod.errors.length;
-                totalStderrErrors += mod.errors.length;
-                errorTypes['Stderr Errors'] = (errorTypes['Stderr Errors'] || 0) + mod.errors.length;
-                errorTypes['Stderr Errors'] = (errorTypes['Stderr Errors'] || 0) + mod.errors.length;
-                
-                mod.errors.forEach(error => {
-                    // Track individual error messages
-                    // Exclude context/stack trace lines that start with "..."
-                    // Exclude "Errors while evaluating" summary lines
+            if (mod.errorCategories?.stderr) {
+                mod.errorCategories.stderr.forEach(error => {
                     const msg = error.message || error.line || '';
                     const isStackTrace = msg.trim().startsWith('...');
                     const isEvalError = msg.startsWith('Errors while evaluating');
                     
                     if (!isStackTrace && !isEvalError && msg) {
-                        // Clean the message by removing [line:column] prefix
                         const cleanMsg = parser.cleanErrorMessage(msg);
                         if (cleanMsg) {
                             errorMessages[cleanMsg] = (errorMessages[cleanMsg] || 0) + 1;
