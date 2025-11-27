@@ -11,48 +11,6 @@ let
     ./DartLangModTool-master;
 
 in {
-  # Native CLI build
-  native = pkgs.stdenv.mkDerivation {
-    pname = "onb-mod-file-native";
-    version = "1.0.0";
-    
-    src = dartToolSrc;
-    
-    nativeBuildInputs = [
-      unstable.dart
-    ];
-    
-    unpackPhase = ''
-      # Copy source to a writable location
-      mkdir -p ./source
-      cp -r $src/* ./source/
-      chmod -R u+w ./source
-      cd ./source
-    '';
-    
-    buildPhase = ''
-      export HOME=$TMPDIR
-      
-      # Get dependencies
-      dart pub get
-      
-      # Compile to native executable
-      dart compile exe bin/onb_mod_file.dart -o onb_mod_file
-    '';
-    
-    installPhase = ''
-      mkdir -p $out/bin
-      cp onb_mod_file $out/bin/
-    '';
-    
-    meta = with pkgs.lib; {
-      description = "ONB Mod File Analyzer - Native CLI";
-      homepage = "https://github.com/TheMaverickProgrammer/DartLangModTool";
-      license = licenses.mit;
-      platforms = platforms.all;
-    };
-  };
-
   # WebAssembly build
   wasm = pkgs.stdenv.mkDerivation {
     pname = "onb-mod-file-wasm";
@@ -110,12 +68,5 @@ in {
     };
   };
 
-  # Combined build for convenience
-  all = pkgs.symlinkJoin {
-    name = "onb-mod-file-all";
-    paths = [
-      (pkgs.callPackage ./default.nix {}).native
-      (pkgs.callPackage ./default.nix {}).wasm
-    ];
-  };
+
 }

@@ -1108,7 +1108,8 @@ main {
 }
 
 .console-stdout h4,
-.console-stderr h4 {
+.console-stderr h4,
+.console-analyzer-error h4 {
     margin-bottom: 0.5rem;
     font-size: 0.875rem;
     font-weight: 600;
@@ -1116,7 +1117,8 @@ main {
 }
 
 .console-stdout,
-.console-stderr {
+.console-stderr,
+.console-analyzer-error {
     background: var(--bg-color);
     border: 1px solid var(--border-color);
     border-radius: 4px;
@@ -1125,8 +1127,17 @@ main {
     overflow-x: auto;
 }
 
-.console-stderr {
+.console-stderr,
+.console-analyzer-error {
     border-color: var(--error-color);
+}
+
+.console-analyzer-error {
+    background: rgba(244, 67, 54, 0.05);
+}
+
+.console-analyzer-error h4 {
+    color: var(--error-color);
 }
 
 .code-preview {

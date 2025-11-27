@@ -43,29 +43,7 @@ echo "✓ nix-portable installed successfully"
 echo "Run 'source ~/.bashrc' or restart your terminal to use it"
 '''
 
-[tasks."build:native"]
-description = "Build native CLI executable"
-depends = ["setup"]
-run = '''
-#!/usr/bin/env bash
-set -euo pipefail
 
-echo "Building native CLI executable..."
-
-# Use nix or nix-portable
-if command -v nix &> /dev/null; then
-    NIX_CMD="nix"
-elif command -v nix-portable &> /dev/null; then
-    NIX_CMD="nix-portable nix"
-else
-    echo "Error: Neither nix nor nix-portable found. Run 'mise run setup' first."
-    exit 1
-fi
-
-$NIX_CMD build -f default.nix native -o result-native
-
-echo "✓ Native executable built: result-native/bin/onb_mod_file"
-'''
 
 [tasks."build:web"]
 description = "Build WebAssembly module and copy to web/versions/latest/"
@@ -110,25 +88,11 @@ fi
 echo "✓ WebAssembly module built and copied to web/versions/latest/"
 '''
 
-[tasks.execute]
-description = "Run native CLI tool with arguments"
-alias = "run"
-depends = ["build:native"]
-run = '''
-#!/usr/bin/env bash
-set -euo pipefail
 
-if [ ! -f result-native/bin/onb_mod_file ]; then
-    echo "Error: Native executable not found. Run 'mise run build:native' first."
-    exit 1
-fi
-
-./result-native/bin/onb_mod_file "$@"
-'''
 
 [tasks."build:all"]
-description = "Build both native and web targets"
-depends = ["build:native", "build:web"]
+description = "Build web target"
+depends = ["build:web"]
 run = '''
 echo "✓ All builds complete"
 '''
@@ -141,7 +105,7 @@ set -euo pipefail
 
 echo "Cleaning build artifacts..."
 
-rm -rf result-native result-wasm result
+rm -rf result-wasm result
 
 echo "✓ Build artifacts cleaned"
 '''

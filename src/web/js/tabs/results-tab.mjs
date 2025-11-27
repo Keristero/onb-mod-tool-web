@@ -310,12 +310,14 @@ export default class ResultsTab extends BaseTab {
         // Check both result.stdout and parsed.stdout
         const stdout = result.stdout || result.data?.stdout || '';
         const stderr = result.stderr || result.data?.stderr || '';
-        const hasOutput = stdout || stderr;
+        const analyzerError = result.success === false && result.error ? result.error : '';
+        const hasOutput = stdout || stderr || analyzerError;
         
         // Debug logging
         console.log('renderConsoleOutput - result:', result);
         console.log('stdout found:', !!stdout, 'length:', stdout.length);
         console.log('stderr found:', !!stderr, 'length:', stderr.length);
+        console.log('analyzer error:', analyzerError);
         
         if (!hasOutput) {
             return '';
@@ -324,6 +326,12 @@ export default class ResultsTab extends BaseTab {
         return `
             <div class="console-section">
                 <h3>Console Output</h3>
+                ${analyzerError ? `
+                    <div class="console-analyzer-error">
+                        <h4>Analyzer Error</h4>
+                        <pre>${escapeHtml(analyzerError)}</pre>
+                    </div>
+                ` : ''}
                 ${stdout ? `
                     <div class="console-stdout">
                         <h4>Standard Output</h4>

@@ -128,8 +128,16 @@ export default class StatisticsTab extends BaseTab {
             categories: {},
             totalErrors: 0,
             parserErrors: 0,
-            validationErrors: 0
+            validationErrors: 0,
+            analyzerErrors: 0
         };
+        
+        // Analyzer error tracking
+        if (mod.result && mod.result.success === false && mod.result.error) {
+            stats.analyzerErrors = 1;
+            stats.errorTypes['Analyzer Error'] = 1;
+            stats.totalErrors += 1;
+        }
         
         // Validation error tracking
         if (mod.validationErrors && mod.validationErrors.length > 0) {
@@ -201,8 +209,15 @@ export default class StatisticsTab extends BaseTab {
         const errorsByFile = {};
         let totalParserErrors = 0;
         let totalValidationErrors = 0;
+        let totalAnalyzerErrors = 0;
         
         mods.forEach(mod => {
+            // Analyzer errors
+            if (mod.result && mod.result.success === false && mod.result.error) {
+                totalAnalyzerErrors += 1;
+                errorTypes['Analyzer Error'] = (errorTypes['Analyzer Error'] || 0) + 1;
+            }
+            
             // Parser errors
             if (mod.errors && mod.errors.length > 0) {
                 errorsByFile[mod.fileName] = mod.errors.length;
@@ -265,9 +280,10 @@ export default class StatisticsTab extends BaseTab {
             errorMessages,
             errorsByFile,
             categories,
-            totalErrors: totalParserErrors + totalValidationErrors,
+            totalErrors: totalParserErrors + totalValidationErrors + totalAnalyzerErrors,
             parserErrors: totalParserErrors,
             validationErrors: totalValidationErrors,
+            analyzerErrors: totalAnalyzerErrors,
             failedMods
         };
     }
@@ -419,6 +435,10 @@ export default class StatisticsTab extends BaseTab {
                     <div class="stat-card">
                         <h3>Total Errors</h3>
                         <div class="stat-value" style="color: var(--error-color)">${stats.totalErrors}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Analyzer Errors</h3>
+                        <div class="stat-value" style="color: var(--error-color)">${stats.analyzerErrors}</div>
                     </div>
                     <div class="stat-card">
                         <h3>Parser Errors</h3>
