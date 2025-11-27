@@ -115,8 +115,10 @@ export default class StatisticsTab extends BaseTab {
         const stats = {
             total: 1,
             successful: mod.status === 'success' ? 1 : 0,
+            validationFailed: mod.status === 'validation-failed' ? 1 : 0,
             failed: mod.status === 'failed' ? 1 : 0,
             successRate: mod.status === 'success' ? 100 : 0,
+            validationSuccessRate: (mod.status === 'success' || mod.status === 'validation-failed') ? 100 : 0,
             avgTime: mod.processingTime || 0,
             minTime: mod.processingTime || 0,
             maxTime: mod.processingTime || 0,
@@ -124,15 +126,23 @@ export default class StatisticsTab extends BaseTab {
             errorMessages: {},
             errorsByFile: {},
             categories: {},
-            totalErrors: 0
+            totalErrors: 0,
+            parserErrors: 0,
+            validationErrors: 0
         };
         
-        // Error analysis
+        // Validation error tracking
+        if (mod.validationErrors && mod.validationErrors.length > 0) {
+            stats.validationErrors = mod.validationErrors.length;
+        }
+        
+        // Error analysis (parser errors)
         if (mod.errors && mod.errors.length > 0) {
             stats.errorsByFile[mod.fileName] = mod.errors.length;
+            stats.parserErrors = mod.errors.length;
             
             mod.errors.forEach(error => {
-                const type = this.categorizeError(error.message);
+                const type = this.categorizeError(error.message, false);
                 stats.errorTypes[type] = (stats.errorTypes[type] || 0) + 1;
                 
                 // Track individual error messages
@@ -154,6 +164,12 @@ export default class StatisticsTab extends BaseTab {
             stats.totalErrors = mod.errors.length;
         }
         
+        // Add validation errors to error types
+        if (mod.validationErrors && mod.validationErrors.length > 0) {
+            stats.errorTypes['Web Validation'] = mod.validationErrors.length;
+            stats.totalErrors += mod.validationErrors.length;
+        }
+        
         // Category
         if (mod.parsed && mod.parsed.category) {
             stats.categories[mod.parsed.category] = 1;
@@ -165,6 +181,7 @@ export default class StatisticsTab extends BaseTab {
     calculateStats(mods) {
         const total = mods.length;
         const successful = mods.filter(m => m.status === 'success').length;
+        const validationFailed = mods.filter(m => m.status === 'validation-failed').length;
         const failed = mods.filter(m => m.status === 'failed').length;
         
         const processingTimes = mods
@@ -182,13 +199,17 @@ export default class StatisticsTab extends BaseTab {
         const errorTypes = {};
         const errorMessages = {};
         const errorsByFile = {};
+        let totalParserErrors = 0;
+        let totalValidationErrors = 0;
         
         mods.forEach(mod => {
+            // Parser errors
             if (mod.errors && mod.errors.length > 0) {
                 errorsByFile[mod.fileName] = mod.errors.length;
+                totalParserErrors += mod.errors.length;
                 
                 mod.errors.forEach(error => {
-                    const type = this.categorizeError(error.message);
+                    const type = this.categorizeError(error.message, false);
                     errorTypes[type] = (errorTypes[type] || 0) + 1;
                     
                     // Track individual error messages
@@ -207,6 +228,12 @@ export default class StatisticsTab extends BaseTab {
                     }
                 });
             }
+            
+            // Validation errors
+            if (mod.validationErrors && mod.validationErrors.length > 0) {
+                totalValidationErrors += mod.validationErrors.length;
+                errorTypes['Web Validation'] = (errorTypes['Web Validation'] || 0) + mod.validationErrors.length;
+            }
         });
         
         // Category breakdown
@@ -218,11 +245,19 @@ export default class StatisticsTab extends BaseTab {
             }
         });
         
+        // Collect failed mods for detailed list
+        const failedMods = mods.filter(m => m.status === 'failed').map(m => ({
+            fileName: m.fileName,
+            error: m.error || 'Parser failure'
+        }));
+        
         return {
             total,
             successful,
+            validationFailed,
             failed,
-            successRate: total > 0 ? (successful / total * 100).toFixed(1) : 0,
+            successRate: total > 0 ? ((successful + validationFailed) / total * 100).toFixed(1) : 0,
+            validationSuccessRate: total > 0 ? (successful / total * 100).toFixed(1) : 0,
             avgTime,
             minTime,
             maxTime,
@@ -230,11 +265,24 @@ export default class StatisticsTab extends BaseTab {
             errorMessages,
             errorsByFile,
             categories,
-            totalErrors: Object.values(errorTypes).reduce((a, b) => a + b, 0)
+            totalErrors: totalParserErrors + totalValidationErrors,
+            parserErrors: totalParserErrors,
+            validationErrors: totalValidationErrors,
+            failedMods
         };
     }
     
-    categorizeError(message) {
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    categorizeError(message, isValidationError = false) {
+        if (isValidationError) {
+            return 'Web Validation';
+        }
+        
         const lowerMsg = message.toLowerCase();
         
         // Parser-specific errors with location [line:col]
@@ -300,6 +348,11 @@ export default class StatisticsTab extends BaseTab {
                 </div>
                 
                 <div class="chart-container">
+                    <h3>Error Distribution</h3>
+                    ${this.renderErrorDistributionChart(stats)}
+                </div>
+                
+                <div class="chart-container">
                     <h3>Error Types</h3>
                     ${this.renderErrorTypesChart(stats)}
                 </div>
@@ -321,17 +374,42 @@ export default class StatisticsTab extends BaseTab {
                     ${this.renderCategoriesChart(stats)}
                 </div>
             </div>
+            
+            ${mode === 'session' && stats.failedMods && stats.failedMods.length > 0 ? `
+            <div class="stats-section">
+                <h3>Failed to Parse (${stats.failedMods.length})</h3>
+                <div class="failed-mods-list">
+                    ${stats.failedMods.map(mod => `
+                        <div class="failed-mod-item">
+                            <div class="failed-mod-name">${this.escapeHtml(mod.fileName)}</div>
+                            <div class="failed-mod-error">${this.escapeHtml(mod.error || 'Unknown error')}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+            ` : ''}
         `;
     }
     
     renderOverviewCards(stats, mode) {
         if (mode === 'file') {
+            // Determine status for file view
+            let statusText = 'Success';
+            let statusColor = 'var(--success-color)';
+            if (stats.failed === 1) {
+                statusText = 'Failed';
+                statusColor = 'var(--error-color)';
+            } else if (stats.validationFailed === 1) {
+                statusText = 'Validation Failed';
+                statusColor = 'var(--warning-color)';
+            }
+            
             return `
                 <div class="stats-grid">
                     <div class="stat-card">
                         <h3>Status</h3>
-                        <div class="stat-value" style="color: ${stats.successful === 1 ? 'var(--success-color)' : 'var(--error-color)'}">
-                            ${stats.successful === 1 ? 'Success' : 'Failed'}
+                        <div class="stat-value" style="color: ${statusColor}">
+                            ${statusText}
                         </div>
                     </div>
                     <div class="stat-card">
@@ -341,6 +419,14 @@ export default class StatisticsTab extends BaseTab {
                     <div class="stat-card">
                         <h3>Total Errors</h3>
                         <div class="stat-value" style="color: var(--error-color)">${stats.totalErrors}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Parser Errors</h3>
+                        <div class="stat-value" style="color: var(--error-color)">${stats.parserErrors}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Validation Errors</h3>
+                        <div class="stat-value" style="color: var(--warning-color)">${stats.validationErrors}</div>
                     </div>
                     <div class="stat-card">
                         <h3>Category</h3>
@@ -357,14 +443,24 @@ export default class StatisticsTab extends BaseTab {
                     <div class="stat-value">${stats.total}</div>
                 </div>
                 <div class="stat-card">
-                    <h3>Success Rate</h3>
+                    <h3>Parse Success Rate</h3>
                     <div class="stat-value" style="color: ${stats.successRate > 80 ? 'var(--success-color)' : 'var(--warning-color)'}">
                         ${stats.successRate}%
                     </div>
                 </div>
                 <div class="stat-card">
+                    <h3>Validation Success Rate</h3>
+                    <div class="stat-value" style="color: ${stats.validationSuccessRate > 80 ? 'var(--success-color)' : 'var(--warning-color)'}">
+                        ${stats.validationSuccessRate}%
+                    </div>
+                </div>
+                <div class="stat-card">
                     <h3>Successful</h3>
                     <div class="stat-value" style="color: var(--success-color)">${stats.successful}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Validation Failed</h3>
+                    <div class="stat-value" style="color: var(--warning-color)">${stats.validationFailed || 0}</div>
                 </div>
                 <div class="stat-card">
                     <h3>Failed</h3>
@@ -378,27 +474,74 @@ export default class StatisticsTab extends BaseTab {
                     <h3>Total Errors</h3>
                     <div class="stat-value" style="color: var(--error-color)">${stats.totalErrors}</div>
                 </div>
+                <div class="stat-card">
+                    <h3>Parser Errors</h3>
+                    <div class="stat-value" style="color: var(--error-color)">${stats.parserErrors}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Validation Errors</h3>
+                    <div class="stat-value" style="color: var(--warning-color)">${stats.validationErrors}</div>
+                </div>
             </div>
         `;
     }
     
     renderSuccessRateChart(stats) {
         const successPercent = stats.successRate;
-        const failPercent = 100 - successPercent;
+        const validationFailedPercent = stats.validationFailed ? (stats.validationFailed / stats.total * 100) : 0;
+        const failPercent = 100 - successPercent - validationFailedPercent;
+        
+        // Three-tier pie chart using SVG paths
+        const radius = 80;
+        const center = 100;
+        
+        // Calculate arc paths
+        const successAngle = (stats.successful / stats.total) * 360;
+        const validationFailedAngle = (stats.validationFailed / stats.total) * 360;
+        const failedAngle = (stats.failed / stats.total) * 360;
+        
+        const createArc = (startAngle, endAngle, color) => {
+            const start = (startAngle - 90) * Math.PI / 180;
+            const end = (endAngle - 90) * Math.PI / 180;
+            const x1 = center + radius * Math.cos(start);
+            const y1 = center + radius * Math.sin(start);
+            const x2 = center + radius * Math.cos(end);
+            const y2 = center + radius * Math.sin(end);
+            const largeArc = endAngle - startAngle > 180 ? 1 : 0;
+            
+            return `<path d="M ${center} ${center} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z" fill="${color}" />`;
+        };
+        
+        let currentAngle = 0;
+        let chartPaths = '';
+        
+        if (stats.successful > 0) {
+            chartPaths += createArc(currentAngle, currentAngle + successAngle, 'var(--success-color)');
+            currentAngle += successAngle;
+        }
+        
+        if (stats.validationFailed > 0) {
+            chartPaths += createArc(currentAngle, currentAngle + validationFailedAngle, 'var(--warning-color)');
+            currentAngle += validationFailedAngle;
+        }
+        
+        if (stats.failed > 0) {
+            chartPaths += createArc(currentAngle, currentAngle + failedAngle, 'var(--error-color)');
+        }
         
         return `
             <div class="pie-chart">
                 <svg viewBox="0 0 200 200" style="max-width: 300px; margin: 0 auto;">
-                    <circle cx="100" cy="100" r="80" fill="var(--success-color)" 
-                            stroke-dasharray="${successPercent * 5.03} ${failPercent * 5.03}" 
-                            stroke-dashoffset="0" transform="rotate(-90 100 100)"/>
-                    <circle cx="100" cy="100" r="80" fill="none" stroke="var(--error-color)" 
-                            stroke-width="80" stroke-dasharray="${failPercent * 5.03} ${successPercent * 5.03}" 
-                            stroke-dashoffset="${-successPercent * 5.03}" transform="rotate(-90 100 100)"/>
+                    ${chartPaths}
                 </svg>
                 <div class="chart-legend">
                     <div><span style="color: var(--success-color)">●</span> Success: ${stats.successful}</div>
+                    <div><span style="color: var(--warning-color)">●</span> Validation Failed: ${stats.validationFailed || 0}</div>
                     <div><span style="color: var(--error-color)">●</span> Failed: ${stats.failed}</div>
+                </div>
+                <div class="chart-stats">
+                    <div><strong>Parse Success Rate:</strong> ${stats.successRate}%</div>
+                    <div><strong>Validation Success Rate:</strong> ${stats.validationSuccessRate}%</div>
                 </div>
             </div>
         `;
@@ -418,6 +561,59 @@ export default class StatisticsTab extends BaseTab {
                 <div class="stat-row">
                     <span>Maximum:</span>
                     <strong>${parser.formatDuration(stats.maxTime)}</strong>
+                </div>
+            </div>
+        `;
+    }
+    
+    renderErrorDistributionChart(stats) {
+        const parserErrors = stats.parserErrors || 0;
+        const validationErrors = stats.validationErrors || 0;
+        const totalErrors = parserErrors + validationErrors;
+        
+        if (totalErrors === 0) {
+            return '<div class="empty-state">No errors recorded</div>';
+        }
+        
+        const parserPercent = (parserErrors / totalErrors) * 100;
+        const validationPercent = (validationErrors / totalErrors) * 100;
+        
+        // Create pie chart
+        const radius = 80;
+        const center = 100;
+        
+        const parserAngle = (parserErrors / totalErrors) * 360;
+        const validationAngle = (validationErrors / totalErrors) * 360;
+        
+        const createArc = (startAngle, endAngle, color) => {
+            if (endAngle - startAngle === 0) return '';
+            const start = (startAngle - 90) * Math.PI / 180;
+            const end = (endAngle - 90) * Math.PI / 180;
+            const x1 = center + radius * Math.cos(start);
+            const y1 = center + radius * Math.sin(start);
+            const x2 = center + radius * Math.cos(end);
+            const y2 = center + radius * Math.sin(end);
+            const largeArc = endAngle - startAngle > 180 ? 1 : 0;
+            
+            return `<path d="M ${center} ${center} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z" fill="${color}" />`;
+        };
+        
+        let chartPaths = '';
+        if (parserErrors > 0) {
+            chartPaths += createArc(0, parserAngle, 'var(--error-color)');
+        }
+        if (validationErrors > 0) {
+            chartPaths += createArc(parserAngle, parserAngle + validationAngle, 'var(--warning-color)');
+        }
+        
+        return `
+            <div class="pie-chart">
+                <svg viewBox="0 0 200 200" style="max-width: 300px; margin: 0 auto;">
+                    ${chartPaths}
+                </svg>
+                <div class="chart-legend">
+                    <div><span style="color: var(--error-color)">●</span> Parser Errors: ${parserErrors} (${parserPercent.toFixed(1)}%)</div>
+                    <div><span style="color: var(--warning-color)">●</span> Validation Errors: ${validationErrors} (${validationPercent.toFixed(1)}%)</div>
                 </div>
             </div>
         `;
@@ -535,20 +731,31 @@ export default class StatisticsTab extends BaseTab {
     
     exportCSV(mode) {
         const mods = mode === 'file' && this.currentMod ? [this.currentMod] : this.sessionMods;
-        const headers = ['Filename', 'Status', 'Category', 'Errors', 'Warnings', 'Processing Time (ms)', 'Size (bytes)', 'Timestamp'];
-        const rows = mods.map(mod => [
-            mod.fileName,
-            mod.status,
-            mod.parsed?.category || '',
-            mod.errors?.filter(e => e.type === 'error').length || 0,
-            mod.errors?.filter(e => e.type === 'warning').length || 0,
-            mod.processingTime || 0,
-            mod.fileSize || 0,
-            mod.timestamp || ''
-        ]);
+        const headers = ['Filename', 'Status', 'Validation Status', 'Category', 'Parser Errors', 'Validation Errors', 'Warnings', 'Processing Time (ms)', 'Size (bytes)', 'Validation Error Details', 'Timestamp'];
+        const rows = mods.map(mod => {
+            const validationStatus = mod.status === 'validation-failed' ? 'Validation Failed' : 
+                                    mod.status === 'failed' ? 'Failed' : 'Success';
+            const parserErrors = mod.errors?.filter(e => e.type === 'error').length || 0;
+            const validationErrors = mod.validationErrors?.length || 0;
+            const validationDetails = mod.validationErrors?.map(e => `${e.field}: ${e.message}`).join('; ') || '';
+            
+            return [
+                mod.fileName,
+                mod.status,
+                validationStatus,
+                mod.parsed?.category || '',
+                parserErrors,
+                validationErrors,
+                mod.errors?.filter(e => e.type === 'warning').length || 0,
+                mod.processingTime || 0,
+                mod.fileSize || 0,
+                validationDetails,
+                mod.timestamp || ''
+            ];
+        });
         
         const csv = [headers, ...rows]
-            .map(row => row.map(cell => `"${cell}"`).join(','))
+            .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
             .join('\n');
         
         const filename = mode === 'file' ? `${this.currentMod.fileName}-statistics.csv` : 'session-statistics.csv';
@@ -564,26 +771,43 @@ export default class StatisticsTab extends BaseTab {
     <summary>
         <total>${stats.total}</total>
         <successful>${stats.successful}</successful>
+        <validationFailed>${stats.validationFailed || 0}</validationFailed>
         <failed>${stats.failed}</failed>
         <successRate>${stats.successRate}</successRate>
+        <validationSuccessRate>${stats.validationSuccessRate}</validationSuccessRate>
         <avgProcessingTime>${stats.avgTime}</avgProcessingTime>
         <totalErrors>${stats.totalErrors}</totalErrors>
+        <parserErrors>${stats.parserErrors}</parserErrors>
+        <validationErrors>${stats.validationErrors}</validationErrors>
     </summary>
     <mods>
-        ${mods.map(mod => `
+        ${mods.map(mod => {
+            const validationStatus = mod.status === 'validation-failed' ? 'Validation Failed' : 
+                                    mod.status === 'failed' ? 'Failed' : 'Success';
+            const parserErrors = mod.errors?.filter(e => e.type === 'error').length || 0;
+            const validationErrorCount = mod.validationErrors?.length || 0;
+            
+            return `
         <mod>
             <filename>${this.escapeXml(mod.fileName)}</filename>
-            <status>${mod.status}</status>
+            <status>${this.escapeXml(mod.status)}</status>
+            <validationStatus>${this.escapeXml(validationStatus)}</validationStatus>
             <category>${this.escapeXml(mod.parsed?.category || '')}</category>
             <processingTime>${mod.processingTime || 0}</processingTime>
             <size>${mod.fileSize || 0}</size>
-            <errors>
+            <parserErrors count="${parserErrors}">
                 ${(mod.errors || []).map(e => `
-                <error type="${e.type}">${this.escapeXml(e.message)}</error>
+                <error type="${this.escapeXml(e.type)}">${this.escapeXml(e.message)}</error>
                 `).join('')}
-            </errors>
+            </parserErrors>
+            <validationErrors count="${validationErrorCount}">
+                ${(mod.validationErrors || []).map(e => `
+                <error field="${this.escapeXml(e.field)}">${this.escapeXml(e.message)}</error>
+                `).join('')}
+            </validationErrors>
         </mod>
-        `).join('')}
+            `;
+        }).join('')}
     </mods>
 </modStatistics>`;
         

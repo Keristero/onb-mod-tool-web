@@ -361,3 +361,97 @@ export function searchJson(obj, query) {
     search(obj);
     return results;
 }
+
+/**
+ * Constants for invalid field values
+ */
+const INVALID_VALUES = ['none', 'null', '', 'unknown'];
+const INVALID_VERSION_VALUES = ['none', 'null', '', '0.0.0'];
+
+/**
+ * Validate a single mod field
+ */
+export function validateModField(fieldName, value, invalidValues = INVALID_VALUES) {
+    if (value === null || value === undefined) {
+        return { valid: false, message: `${fieldName} is required` };
+    }
+    
+    const stringValue = String(value).trim();
+    
+    if (invalidValues.includes(stringValue.toLowerCase())) {
+        return { valid: false, message: `${fieldName} must be set to a valid value` };
+    }
+    
+    return { valid: true };
+}
+
+/**
+ * Validate mod summary data
+ */
+export function validateModSummary(parsed, errorCount) {
+    const validationErrors = [];
+    
+    // Validate name
+    const nameValidation = validateModField('Name', parsed.name);
+    if (!nameValidation.valid) {
+        validationErrors.push({
+            field: 'name',
+            message: nameValidation.message
+        });
+    }
+    
+    // Validate id
+    const idValidation = validateModField('ID', parsed.id);
+    if (!idValidation.valid) {
+        validationErrors.push({
+            field: 'id',
+            message: idValidation.message
+        });
+    }
+    
+    // Validate uuid
+    const uuidValidation = validateModField('UUID', parsed.uuid);
+    if (!uuidValidation.valid) {
+        validationErrors.push({
+            field: 'uuid',
+            message: uuidValidation.message
+        });
+    }
+    
+    // Validate game
+    const gameValidation = validateModField('Game', parsed.game);
+    if (!gameValidation.valid) {
+        validationErrors.push({
+            field: 'game',
+            message: gameValidation.message
+        });
+    }
+    
+    // Validate version
+    const versionValidation = validateModField('Version', parsed.version, INVALID_VERSION_VALUES);
+    if (!versionValidation.valid) {
+        validationErrors.push({
+            field: 'version',
+            message: versionValidation.message
+        });
+    }
+    
+    // Validate category
+    const categoryValidation = validateModField('Category', parsed.category);
+    if (!categoryValidation.valid) {
+        validationErrors.push({
+            field: 'category',
+            message: categoryValidation.message
+        });
+    }
+    
+    // Validate error count
+    if (errorCount > 0) {
+        validationErrors.push({
+            field: 'errors',
+            message: `Mod has ${errorCount} parser error(s) that must be resolved`
+        });
+    }
+    
+    return validationErrors;
+}

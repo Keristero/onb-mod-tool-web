@@ -169,31 +169,52 @@ class ModAnalyzer {
         this.showLoading('Initializing analyzer...');
         
         try {
-            this.worker = new Worker('./js/worker.mjs', { type: 'module' });
-            
-            this.worker.addEventListener('message', (event) => {
-                this.handleWorkerMessage(event.data);
-            });
-            
-            // Wait for worker ready
-            await new Promise((resolve) => {
-                const handler = (event) => {
-                    if (event.data.type === 'worker-ready') {
-                        this.worker.removeEventListener('message', handler);
-                        resolve();
-                    }
-                };
-                this.worker.addEventListener('message', handler);
-            });
-            
-            // Initialize WASM
-            await this.sendWorkerMessage('init', { version: this.currentVersion });
-            
+            await this.createWorker();
             this.workerReady = true;
             this.hideLoading();
         } catch (error) {
             this.hideLoading();
             alert('Failed to initialize: ' + error.message);
+        }
+    }
+    
+    async createWorker() {
+        // Terminate existing worker if any
+        if (this.worker) {
+            this.worker.terminate();
+        }
+        
+        this.worker = new Worker('./js/worker.mjs', { type: 'module' });
+        
+        this.worker.addEventListener('message', (event) => {
+            this.handleWorkerMessage(event.data);
+        });
+        
+        // Wait for worker ready
+        await new Promise((resolve) => {
+            const handler = (event) => {
+                if (event.data.type === 'worker-ready') {
+                    this.worker.removeEventListener('message', handler);
+                    resolve();
+                }
+            };
+            this.worker.addEventListener('message', handler);
+        });
+        
+        // Initialize WASM
+        await this.sendWorkerMessage('init', { version: this.currentVersion });
+    }
+    
+    async reinitWorker() {
+        console.warn('Worker timeout detected, reinitializing worker...');
+        this.workerReady = false;
+        try {
+            await this.createWorker();
+            this.workerReady = true;
+            console.log('Worker reinitialized successfully');
+        } catch (error) {
+            console.error('Failed to reinitialize worker:', error);
+            throw error;
         }
     }
     
@@ -211,11 +232,13 @@ class ModAnalyzer {
             this.worker.addEventListener('message', handler);
             this.worker.postMessage({ type, payload, id });
             
-            // Timeout after 30 seconds
+            // Timeout after 2 seconds
             setTimeout(() => {
                 this.worker.removeEventListener('message', handler);
-                reject(new Error('Worker timeout'));
-            }, 30000);
+                const error = new Error('Worker timeout - parsing took longer than 2 seconds');
+                error.isTimeout = true; // Mark as timeout for worker recreation
+                reject(error);
+            }, 2000);
         });
     }
     
@@ -266,24 +289,12 @@ class ModAnalyzer {
     async processFile(file) {
         const modId = Date.now() + Math.random();
         
-        // Add to mod list as processing
-        const modData = {
-            id: modId,
-            fileName: file.name,
-            fileSize: file.size,
-            status: 'processing',
-            timestamp: new Date()
-        };
-        
-        this.processedMods.unshift(modData);
-        this.renderModList();
-        
         this.showLoading(`Processing ${file.name}...`);
         
+        // Read file first (before try block) so we always have the arrayBuffer
+        const arrayBuffer = await file.arrayBuffer();
+        
         try {
-            // Read file
-            const arrayBuffer = await file.arrayBuffer();
-            
             // Process with worker
             const result = await this.sendWorkerMessage('process', {
                 fileName: file.name,
@@ -292,28 +303,72 @@ class ModAnalyzer {
                 options: {}
             });
             
-            // Store file data for file browser
-            modData.fileData = arrayBuffer;
+            // Create mod data with all information
+            const modData = {
+                id: modId,
+                fileName: file.name,
+                fileSize: file.size,
+                fileData: arrayBuffer,
+                result: result,
+                parsed: parser.parseAnalysisResult(result),
+                errors: parser.extractErrors(result.stderr),
+                processingTime: result.processingTime,
+                timestamp: new Date()
+            };
             
-            // Update mod data
-            modData.status = result.success ? 'success' : 'failed';
-            modData.result = result;
-            modData.parsed = parser.parseAnalysisResult(result);
-            modData.errors = parser.extractErrors(result.stderr);
-            modData.processingTime = result.processingTime;
+            // Add to processed mods list and select it
+            this.processedMods.unshift(modData);
             
-            this.renderModList();
-            
-            // Select this mod (it's at index 0 since we used unshift)
+            // Select this mod (it's at index 0 since we used unshift) - this will trigger validation
             await this.selectMod(0);
+            
+            // Render the list after validation is complete
+            this.renderModList();
             
             // Save state
             this.saveState();
             
         } catch (error) {
             console.error('Processing error:', error);
-            modData.status = 'failed';
-            modData.error = error.message;
+            
+            // If timeout occurred, recreate the worker
+            if (error.isTimeout) {
+                try {
+                    await this.reinitWorker();
+                } catch (reinitError) {
+                    console.error('Failed to reinitialize worker after timeout:', reinitError);
+                }
+            }
+            
+            // Create failed mod data with empty result/parsed objects to avoid errors in display
+            const modData = {
+                id: modId,
+                fileName: file.name,
+                fileSize: file.size,
+                fileData: arrayBuffer, // Include fileData so file browser can access it
+                status: 'failed',
+                error: error.message,
+                timestamp: new Date(),
+                result: {
+                    stderr: error.message,
+                    stdout: '',
+                    data: {},
+                    processingTime: 0
+                },
+                parsed: {
+                    name: 'unknown',
+                    id: 'unknown',
+                    uuid: 'unknown',
+                    game: 'unknown',
+                    version: '0.0.0',
+                    category: 'err',
+                    path: '',
+                    stderr: error.message
+                },
+                errors: []
+            };
+            
+            this.processedMods.unshift(modData);
             this.renderModList();
         } finally {
             this.hideLoading();
@@ -332,8 +387,9 @@ class ModAnalyzer {
             
             const statusText = {
                 'processing': 'Processing...',
-                'success': `✓ ${mod.processingTime ? parser.formatDuration(mod.processingTime) : ''}`,
-                'failed': '✗ Failed'
+                'success': `Success (${mod.processingTime ? parser.formatDuration(mod.processingTime) : ''})`,
+                'validation-failed': `Validation Issue (${mod.processingTime ? parser.formatDuration(mod.processingTime) : ''})`,
+                'failed': 'Fail'
             }[mod.status] || mod.status;
             
             return `

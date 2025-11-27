@@ -47,6 +47,35 @@ export default class ResultsTab extends BaseTab {
             this.errorManager.parseErrors(mod.result.stderr);
         }
         
+        // Run validation only once (on first processing)
+        if (mod.parsed && mod.result && !mod.validationComplete) {
+            const stderr = mod.result.stderr || mod.parsed.stderr || '';
+            const errorCount = (stderr.match(/\[\s*\d+\s*:\s*\d+\s*\]/g) || []).length 
+                || stderr.split('\n').filter(l => l.trim().startsWith('ERR:')).length;
+            
+            const validationErrors = parser.validateModSummary(mod.parsed, errorCount);
+            mod.validationErrors = validationErrors;
+            
+            // Calculate three-tier status
+            // Treat 'err' category as parser failure
+            const hasParserError = mod.parsed.category === 'err' || mod.result.data?.category === 'err';
+            
+            if (hasParserError) {
+                mod.status = 'failed';
+                // Set error message if not already set
+                if (!mod.error) {
+                    mod.error = 'Parser failure - mod category is "err"';
+                }
+            } else if (validationErrors.length > 0) {
+                mod.status = 'validation-failed';
+            } else {
+                mod.status = 'success';
+            }
+            
+            // Mark as validated
+            mod.validationComplete = true;
+        }
+        
         // Re-render after zip is loaded to ensure hovers are set up
         const jsonView = this.container?.querySelector('#json-view');
         if (jsonView && jsonView.children.length > 0) {
@@ -93,57 +122,74 @@ export default class ResultsTab extends BaseTab {
             || stderr.split('\n').filter(l => l.trim().startsWith('ERR:')).length;
         const warnCount = stderr.split('\n').filter(l => l.trim().startsWith('WARN:')).length;
         
-        // Show UUID if available
-        const uuidRow = parsed.uuid ? `
-            <div class="summary-item">
-                <strong>UUID:</strong> ${parsed.uuid}
-            </div>
-        ` : '';
+        // Get validation errors from currentMod
+        const validationErrors = this.currentMod?.validationErrors || [];
+        const status = this.currentMod?.status || (errorCount > 0 ? 'failed' : 'success');
         
-        // Show game if available
-        const gameRow = parsed.game && parsed.game !== 'unknown' ? `
-            <div class="summary-item">
-                <strong>Game:</strong> ${parsed.game}
-            </div>
-        ` : '';
+        // Determine status text and color
+        let statusText = 'Success';
+        let statusClass = 'success';
+        if (status === 'failed') {
+            statusText = 'Failed';
+            statusClass = 'error';
+        } else if (status === 'validation-failed') {
+            statusText = 'Validation Failed';
+            statusClass = 'warning';
+        }
         
-        // Show path if available
-        const pathRow = parsed.path ? `
-            <div class="summary-item">
-                <strong>Path:</strong> ${parsed.path}
+        // Helper to check if field has validation error
+        const hasValidationError = (field) => validationErrors.some(e => e.field === field);
+        const getValidationTooltip = (field) => {
+            const error = validationErrors.find(e => e.field === field);
+            return error ? error.message : '';
+        };
+        
+        // Helper to render a summary item with copy button
+        const renderSummaryItem = (label, value, field = null, isStatus = false) => {
+            const hasError = field && hasValidationError(field);
+            const tooltip = hasError ? getValidationTooltip(field) : '';
+            const itemStatusClass = isStatus ? `summary-status-item ${statusClass}` : '';
+            
+            return `
+                <div class="summary-item ${itemStatusClass} ${hasError ? 'validation-error' : ''}"
+                     ${tooltip ? `title="${tooltip}"` : ''}>
+                    <div class="summary-item-header">
+                        ${label}
+                        <button class="copy-btn" onclick="navigator.clipboard.writeText('${escapeHtml(String(value)).replace(/'/g, "\\'")}'); this.textContent='copied'; setTimeout(() => this.textContent='copy', 1000)" title="Copy to clipboard">copy</button>
+                    </div>
+                    <div class="summary-item-value">${value}</div>
+                </div>
+            `;
+        };
+        
+        // Validation errors section - always render
+        const validationErrorsSection = `
+            <div class="validation-errors-section ${validationErrors.length === 0 ? 'empty' : ''}">
+                ${validationErrors.length > 0 ? `
+                    <h4>Validation Issues (${validationErrors.length})</h4>
+                    <ul class="validation-error-list">
+                        ${validationErrors.map(err => `
+                            <li><strong>${err.field}:</strong> ${err.message}</li>
+                        `).join('')}
+                    </ul>
+                ` : `
+                    <div class="validation-ok">✓ No validation issues</div>
+                `}
             </div>
-        ` : '';
+        `;
         
         return `
             <div class="summary-grid">
-                <div class="summary-item">
-                    <strong>Name:</strong> ${parsed.name}
-                </div>
-                <div class="summary-item">
-                    <strong>ID:</strong> ${parsed.id}
-                </div>
-                ${uuidRow}
-                ${gameRow}
-                <div class="summary-item">
-                    <strong>Version:</strong> ${parsed.version}
-                </div>
-                <div class="summary-item">
-                    <strong>Category:</strong> ${parsed.category}
-                </div>
-                ${pathRow}
-                <div class="summary-item">
-                    <strong>Size:</strong> ${parser.formatBytes(parsed.bytes)}
-                </div>
-                <div class="summary-item">
-                    <strong>Processing Time:</strong> ${parser.formatDuration(result.processingTime)}
-                </div>
-                <div class="summary-item ${errorCount > 0 ? 'error' : 'success'}">
-                    <strong>Errors:</strong> ${errorCount}
-                </div>
-                <div class="summary-item ${warnCount > 0 ? 'warning' : ''}">
-                    <strong>Warnings:</strong> ${warnCount}
-                </div>
+                ${renderSummaryItem('Status', statusText, null, true)}
+                ${renderSummaryItem('Name', parsed.name, 'name')}
+                ${renderSummaryItem('ID', parsed.id, 'id')}
+                ${renderSummaryItem('UUID', parsed.uuid, 'uuid')}
+                ${renderSummaryItem('Game', parsed.game, 'game')}
+                ${renderSummaryItem('Version', parsed.version, 'version')}
+                ${renderSummaryItem('Category', parsed.category, 'category')}
+                ${renderSummaryItem('Errors', errorCount, 'errors')}
             </div>
+            ${validationErrorsSection}
         `;
     }
     
@@ -180,6 +226,25 @@ export default class ResultsTab extends BaseTab {
                 return '<span class="json-array">[]</span>';
             }
             
+            // Check if array contains only primitives (numbers, strings, booleans, null)
+            const isPrimitiveArray = obj.every(item => {
+                const itemType = typeof item;
+                return item === null || itemType === 'number' || itemType === 'string' || itemType === 'boolean';
+            });
+            
+            if (isPrimitiveArray) {
+                // Render inline for primitive arrays
+                const items = obj.map(item => {
+                    if (item === null) return '<span class="json-null">null</span>';
+                    if (typeof item === 'boolean') return `<span class="json-boolean">${item}</span>`;
+                    if (typeof item === 'number') return `<span class="json-number">${item}</span>`;
+                    if (typeof item === 'string') return `<span class="json-string">"${escapeHtml(item)}"</span>`;
+                }).join(', ');
+                
+                return `<span class="json-array json-array-inline">[${items}]</span>`;
+            }
+            
+            // Render multi-line for complex arrays
             let html = '<div class="json-array">';
             html += `<span class="json-bracket json-expand" data-expanded="true">▼ [</span>`;
             html += '<div class="json-array-content">';
@@ -242,7 +307,16 @@ export default class ResultsTab extends BaseTab {
     }
     
     renderConsoleOutput(result) {
-        const hasOutput = result.stdout || result.stderr;
+        // Check both result.stdout and parsed.stdout
+        const stdout = result.stdout || result.data?.stdout || '';
+        const stderr = result.stderr || result.data?.stderr || '';
+        const hasOutput = stdout || stderr;
+        
+        // Debug logging
+        console.log('renderConsoleOutput - result:', result);
+        console.log('stdout found:', !!stdout, 'length:', stdout.length);
+        console.log('stderr found:', !!stderr, 'length:', stderr.length);
+        
         if (!hasOutput) {
             return '';
         }
@@ -250,8 +324,18 @@ export default class ResultsTab extends BaseTab {
         return `
             <div class="console-section">
                 <h3>Console Output</h3>
-                ${result.stdout ? `<div class="console-stdout"><pre>${this.highlightConsoleOutput(result.stdout)}</pre></div>` : ''}
-                ${result.stderr ? `<div class="console-stderr"><pre>${this.highlightConsoleOutput(result.stderr)}</pre></div>` : ''}
+                ${stdout ? `
+                    <div class="console-stdout">
+                        <h4>Standard Output</h4>
+                        <pre>${this.highlightConsoleOutput(stdout)}</pre>
+                    </div>
+                ` : ''}
+                ${stderr ? `
+                    <div class="console-stderr">
+                        <h4>Standard Error</h4>
+                        <pre>${this.highlightConsoleOutput(stderr)}</pre>
+                    </div>
+                ` : ''}
             </div>
         `;
     }

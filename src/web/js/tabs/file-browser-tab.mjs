@@ -51,6 +51,14 @@ export default class FileBrowserTab extends BaseTab {
         const headerEl = this.querySelector('#preview-filename');
         if (headerEl) headerEl.textContent = 'Select a file';
         this.setHTML('#file-preview', '');
+        
+        // Auto-select entry.lua if it exists in the root
+        if (this.zipArchive && this.zipArchive.files['entry.lua']) {
+            // Wait for render to complete, then select
+            setTimeout(() => {
+                this.selectFile('entry.lua');
+            }, 100);
+        }
     }
     
     render() {
