@@ -375,6 +375,7 @@ export default class FileBrowserTab extends BaseTab {
     
     getErrorsForFile(path) {
         // Use ErrorManager for centralized error retrieval
+        if (!path) return [];
         const fileName = path.split('/').pop();
         return this.errorManager.getErrorsForFile(fileName);
     }
