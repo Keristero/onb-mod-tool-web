@@ -10,7 +10,6 @@ export default class StatisticsTab extends BaseTab {
         this.currentView = 'file'; // 'file' or 'session'
         this.fileContainer = null;
         this.sessionContainer = null;
-        this.maxSessionMods = 500; // Limit for performance
         this.renderDebounceTimer = null;
     }
     
@@ -68,10 +67,6 @@ export default class StatisticsTab extends BaseTab {
         // Add to session mods if not already there
         const existing = this.sessionMods.find(m => m.id === mod.id);
         if (!existing && mod.parsed) {
-            // Limit session mods to prevent performance issues
-            if (this.sessionMods.length >= this.maxSessionMods) {
-                this.sessionMods.pop(); // Remove oldest
-            }
             this.sessionMods.unshift(mod); // Add to front
         } else if (existing && mod.parsed) {
             // Update existing
@@ -87,10 +82,6 @@ export default class StatisticsTab extends BaseTab {
         // Add to session mods if not already there
         const existing = this.sessionMods.find(m => m.id === mod.id);
         if (!existing && mod.parsed) {
-            // Limit session mods to prevent performance issues
-            if (this.sessionMods.length >= this.maxSessionMods) {
-                this.sessionMods.pop(); // Remove oldest
-            }
             this.sessionMods.unshift(mod); // Add to front
         } else if (existing && mod.parsed) {
             // Update existing
@@ -134,14 +125,8 @@ export default class StatisticsTab extends BaseTab {
             return;
         }
         
-        // Show warning if at limit
-        let limitWarning = '';
-        if (this.sessionMods.length >= this.maxSessionMods) {
-            limitWarning = `<div class="stats-warning">Showing statistics for most recent ${this.maxSessionMods} mods (limited for performance)</div>`;
-        }
-        
         const stats = this.calculateStats(this.sessionMods);
-        const html = limitWarning + this.renderStats(stats, 'session');
+        const html = this.renderStats(stats, 'session');
         this.setHTMLForContainer(this.sessionContainer, '#session-stats-content', html);
     }
     

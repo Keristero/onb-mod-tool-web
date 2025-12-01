@@ -20,7 +20,6 @@ class ModAnalyzer {
         
         // Performance optimization flags
         this.renderDebounceTimer = null;
-        this.maxVisibleMods = 100; // Virtual scrolling threshold
         
         // Validation registry
         this.validationRegistry = createDefaultRegistry();
@@ -465,22 +464,8 @@ class ModAnalyzer {
         const fragment = document.createDocumentFragment();
         const tempDiv = document.createElement('div');
         
-        // Limit visible items for virtual scrolling with large lists
-        const visibleMods = filtered.length > this.maxVisibleMods 
-            ? filtered.slice(0, this.maxVisibleMods)
-            : filtered;
-        
-        if (filtered.length > this.maxVisibleMods) {
-            // Show indicator for hidden mods
-            const hiddenCount = filtered.length - this.maxVisibleMods;
-            const indicator = document.createElement('div');
-            indicator.className = 'mod-list-indicator';
-            indicator.textContent = `Showing ${this.maxVisibleMods} of ${filtered.length} mods (${hiddenCount} hidden - use filter to narrow down)`;
-            fragment.appendChild(indicator);
-        }
-        
         // Batch create elements
-        visibleMods.forEach(mod => {
+        filtered.forEach(mod => {
             const actualIndex = this.processedMods.indexOf(mod);
             const statusClass = mod.status;
             const activeClass = actualIndex === this.currentModIndex ? 'active' : '';
