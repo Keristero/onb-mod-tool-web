@@ -39,13 +39,10 @@ export default class FileBrowserTab extends BaseTab {
     async onFileProcessed(mod) {
         await super.onFileProcessed(mod);
         
-        // Clear previous errors
-        this.errorManager.errorsByFile.clear();
-        this.errorManager.rawStderr = '';
-        
-        // Parse errors for this mod
-        if (mod.result?.stderr) {
-            this.errorManager.parseErrors(mod.result.stderr);
+        // Use pre-parsed errors from mod object
+        if (mod.errorsByFile) {
+            this.errorManager.errorsByFile = new Map(mod.errorsByFile);
+            this.errorManager.rawStderr = mod.result?.stderr || '';
         }
         
         // Clear previous file selection
@@ -63,6 +60,24 @@ export default class FileBrowserTab extends BaseTab {
                 this.selectFile('entry.lua');
             }, 100);
         }
+    }
+    
+    setCurrentMod(mod) {
+        super.setCurrentMod(mod);
+        
+        // Use pre-parsed errors from mod object
+        if (mod?.errorsByFile) {
+            this.errorManager.errorsByFile = new Map(mod.errorsByFile);
+            this.errorManager.rawStderr = mod.result?.stderr || '';
+        }
+        
+        // Clear previous file selection
+        this.selectedFile = null;
+        
+        // Clear preview
+        const headerEl = this.querySelector('#preview-filename');
+        if (headerEl) headerEl.textContent = 'Select a file';
+        this.setHTML('#file-preview', '');
     }
     
     render() {
@@ -379,9 +394,9 @@ export default class FileBrowserTab extends BaseTab {
     
     getErrorsForFile(path) {
         // Use ErrorManager for centralized error retrieval
+        // Pass the full path to support proper path matching
         if (!path) return [];
-        const fileName = path.split('/').pop();
-        return this.errorManager.getErrorsForFile(fileName);
+        return this.errorManager.getErrorsForFile(path);
     }
     
     addErrorTooltips(errors) {

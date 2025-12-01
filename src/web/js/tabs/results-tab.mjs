@@ -3,7 +3,7 @@
 import * as parser from '../parser.mjs';
 import BaseTab from './base-tab.mjs';
 import { FilePreviewMixin } from './file-preview-mixin.mjs';
-import { ErrorManager } from './error-manager.mjs';
+import { ErrorManager, findBestPathMatch } from './error-manager.mjs';
 
 export default class ResultsTab extends BaseTab {
     constructor() {
@@ -42,72 +42,10 @@ export default class ResultsTab extends BaseTab {
     async onFileProcessed(mod) {
         await super.onFileProcessed(mod);
         
-        // Parse errors from stderr
-        if (mod.result && mod.result.stderr) {
-            this.errorManager.parseErrors(mod.result.stderr);
-        }
-        
-        // Run validation only once (on first processing)
-        if (mod.parsed && mod.result && !mod.validationComplete) {
-            const stderr = mod.result.stderr || mod.parsed.stderr || '';
-            const errorCount = (stderr.match(/\[\s*\d+\s*:\s*\d+\s*\]/g) || []).length 
-                || stderr.split('\n').filter(l => l.trim().startsWith('ERR:')).length;
-            
-            const validationErrors = parser.validateModSummary(mod.parsed, errorCount);
-            mod.validationErrors = validationErrors;
-            
-            // Initialize error category arrays
-            mod.errorCategories = {
-                validation: validationErrors || [],
-                analyzer: [],
-                stderr: mod.errors || [],
-                other: []
-            };
-            
-            // Collect analyzer errors
-            if (mod.result && mod.result.success === false && mod.result.error) {
-                mod.errorCategories.analyzer.push({
-                    type: 'analyzer-result',
-                    message: mod.result.error
-                });
-            }
-            
-            if (mod.parsed && mod.parsed.category === 'err') {
-                mod.errorCategories.analyzer.push({
-                    type: 'category-err',
-                    message: 'Mod category is "err"'
-                });
-            }
-            
-            if (mod.error && (mod.error.includes('timeout') || mod.error.includes('Worker timeout'))) {
-                mod.errorCategories.analyzer.push({
-                    type: 'timeout',
-                    message: mod.error
-                });
-            }
-            
-            // Calculate three-tier status
-            const hasAnalyzerError = mod.errorCategories.analyzer.length > 0;
-            const hasParserError = hasAnalyzerError;
-            
-            if (hasParserError) {
-                mod.status = 'failed';
-                // Set error message if not already set
-                if (!mod.error) {
-                    if (mod.result && mod.result.error) {
-                        mod.error = `Analyzer error: ${mod.result.error}`;
-                    } else {
-                        mod.error = 'Parser failure - mod category is "err"';
-                    }
-                }
-            } else if (validationErrors.length > 0) {
-                mod.status = 'validation-failed';
-            } else {
-                mod.status = 'success';
-            }
-            
-            // Mark as validated
-            mod.validationComplete = true;
+        // Use pre-parsed errors from mod object
+        if (mod.errorsByFile) {
+            this.errorManager.errorsByFile = new Map(mod.errorsByFile);
+            this.errorManager.rawStderr = mod.result?.stderr || '';
         }
         
         // Re-render after zip is loaded to ensure hovers are set up
@@ -115,6 +53,16 @@ export default class ResultsTab extends BaseTab {
         if (jsonView && jsonView.children.length > 0) {
             this.setupJsonFileHovers();
             this.setupFilePreviewHovers();
+        }
+    }
+    
+    setCurrentMod(mod) {
+        super.setCurrentMod(mod);
+        
+        // Use pre-parsed errors from mod object
+        if (mod?.errorsByFile) {
+            this.errorManager.errorsByFile = new Map(mod.errorsByFile);
+            this.errorManager.rawStderr = mod.result?.stderr || '';
         }
     }
     
@@ -149,16 +97,20 @@ export default class ResultsTab extends BaseTab {
     }
     
     renderSummary(parsed, result) {
-        // Count errors from both parsed stderr and result stderr
+        // Use validation result for accurate error counts
+        const validationResult = this.currentMod?.validationResult;
+        
+        // Get parser error count from validation result (single source of truth)
+        const parserErrorIssue = validationResult?.byField.get('errors')?.[0];
+        const parserErrorCount = parserErrorIssue?.value || 0;
+        
+        // Count warnings from stderr
         const stderr = result.stderr || parsed.stderr || '';
-        // Match [line:column] format or ERR: prefix
-        const errorCount = (stderr.match(/\[\s*\d+\s*:\s*\d+\s*\]/g) || []).length 
-            || stderr.split('\n').filter(l => l.trim().startsWith('ERR:')).length;
         const warnCount = stderr.split('\n').filter(l => l.trim().startsWith('WARN:')).length;
         
         // Get validation errors from currentMod
         const validationErrors = this.currentMod?.validationErrors || [];
-        const status = this.currentMod?.status || (errorCount > 0 ? 'failed' : 'success');
+        const status = this.currentMod?.status || (parserErrorCount > 0 ? 'failed' : 'success');
         
         // Determine status text and color
         let statusText = 'Success';
@@ -221,7 +173,7 @@ export default class ResultsTab extends BaseTab {
                 ${renderSummaryItem('Game', parsed.game, 'game')}
                 ${renderSummaryItem('Version', parsed.version, 'version')}
                 ${renderSummaryItem('Category', parsed.category, 'category')}
-                ${renderSummaryItem('Errors', errorCount, 'errors')}
+                ${renderSummaryItem('Errors', parserErrorCount, 'errors')}
             </div>
             ${validationErrorsSection}
         `;
@@ -346,12 +298,6 @@ export default class ResultsTab extends BaseTab {
         const stderr = result.stderr || result.data?.stderr || '';
         const analyzerError = result.success === false && result.error ? result.error : '';
         const hasOutput = stdout || stderr || analyzerError;
-        
-        // Debug logging
-        console.log('renderConsoleOutput - result:', result);
-        console.log('stdout found:', !!stdout, 'length:', stdout.length);
-        console.log('stderr found:', !!stderr, 'length:', stderr.length);
-        console.log('analyzer error:', analyzerError);
         
         if (!hasOutput) {
             return '';
@@ -509,38 +455,8 @@ export default class ResultsTab extends BaseTab {
             // Skip empty strings or very short strings (but allow 3 char extensions like .md)
             if (!text || text.length < 3) return;
             
-            // Normalize the text path
-            const normalizedText = text.replace(/\\/g, '/');
-            
-            // Check if this string matches any file in the zip
-            const matchingFile = zipFiles.find(f => {
-                const normalizedFile = f.replace(/\\/g, '/');
-                
-                // Direct match
-                if (normalizedFile === normalizedText) return true;
-                
-                // File ends with the text (e.g., "mod/gfx/file.png" ends with "gfx/file.png")
-                if (normalizedFile.endsWith('/' + normalizedText)) return true;
-                
-                // File contains the text path anywhere
-                if (normalizedFile.includes('/' + normalizedText + '/') || 
-                    normalizedFile.includes('/' + normalizedText)) return true;
-                
-                // Just filename match (e.g., "bomb.lua" matches "path/to/bomb.lua")
-                const fileName = normalizedFile.split('/').pop();
-                if (fileName === normalizedText) return true;
-                
-                // Handle case where text might have leading path that's not in zip
-                // (e.g., text="sfx/file.ogg" but zip has "mod/sfx/file.ogg")
-                const textParts = normalizedText.split('/');
-                if (textParts.length > 1) {
-                    const textFileName = textParts[textParts.length - 1];
-                    const textPath = textParts.slice(0, -1).join('/');
-                    if (normalizedFile.endsWith(textPath + '/' + textFileName)) return true;
-                }
-                
-                return false;
-            });
+            // Use path matching utility to find best match
+            const matchingFile = findBestPathMatch(text, zipFiles);
             
             if (matchingFile) {
                 el.classList.add('json-file-path');
@@ -635,28 +551,7 @@ export default class ResultsTab extends BaseTab {
     }
     
     findMatchingZipFile(fileName, zipFiles) {
-        const normalizedFileName = fileName.replace(/\\/g, '/');
-        
-        // Try to find exact or partial matches
-        for (const zipFile of zipFiles) {
-            const normalizedZipFile = zipFile.replace(/\\/g, '/');
-            
-            // Direct match
-            if (normalizedZipFile === normalizedFileName) return zipFile;
-            
-            // Zip file ends with the fileName
-            if (normalizedZipFile.endsWith('/' + normalizedFileName)) return zipFile;
-            
-            // fileName is a relative path that matches end of zip path
-            if (normalizedZipFile.endsWith(normalizedFileName)) return zipFile;
-            
-            // Just filename match
-            const zipBasename = normalizedZipFile.split('/').pop();
-            const fileBasename = normalizedFileName.split('/').pop();
-            if (zipBasename === fileBasename) return zipFile;
-        }
-        
-        return null;
+        return findBestPathMatch(fileName, zipFiles);
     }
     
     async showBracketErrorPreview(event) {

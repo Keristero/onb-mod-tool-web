@@ -1,6 +1,8 @@
 // Main application entry point
 
 import * as parser from './parser.mjs';
+import { ErrorManager } from './tabs/error-manager.mjs';
+import { createDefaultRegistry } from './validation.mjs';
 import ResultsTab from './tabs/results-tab.mjs';
 import FileBrowserTab from './tabs/file-browser-tab.mjs';
 import StatisticsTab from './tabs/statistics-tab.mjs';
@@ -19,6 +21,9 @@ class ModAnalyzer {
         // Performance optimization flags
         this.renderDebounceTimer = null;
         this.maxVisibleMods = 100; // Virtual scrolling threshold
+        
+        // Validation registry
+        this.validationRegistry = createDefaultRegistry();
         
         // Tab modules
         this.tabs = {
@@ -210,12 +215,10 @@ class ModAnalyzer {
     }
     
     async reinitWorker() {
-        console.warn('Worker timeout detected, reinitializing worker...');
         this.workerReady = false;
         try {
             await this.createWorker();
             this.workerReady = true;
-            console.log('Worker reinitialized successfully');
         } catch (error) {
             console.error('Failed to reinitialize worker:', error);
             throw error;
@@ -249,7 +252,7 @@ class ModAnalyzer {
     handleWorkerMessage(data) {
         // Handle worker messages that don't need response promises
         if (data.type === 'init-complete') {
-            console.log('WASM initialized:', data.payload);
+            // WASM initialized successfully
         }
     }
     
@@ -320,6 +323,55 @@ class ModAnalyzer {
                 timestamp: new Date()
             };
             
+            // Pre-parse errors once and cache on mod object
+            const errorManager = new ErrorManager();
+            if (result.stderr) {
+                errorManager.parseErrors(result.stderr);
+                modData.errorsByFile = new Map(errorManager.errorsByFile);
+            } else {
+                modData.errorsByFile = new Map();
+            }
+            
+            // Run validation once using validation registry
+            modData.validationResult = this.validationRegistry.validate(modData);
+            
+            // Derive status from validation result
+            const hasAnalyzerError = modData.validationResult.byField.has('analyzer');
+            const hasParserError = hasAnalyzerError; // Analyzer errors include parser failures
+            
+            if (hasParserError) {
+                modData.status = 'failed';
+                // Set error message from analyzer validation
+                const analyzerIssues = modData.validationResult.byField.get('analyzer');
+                if (analyzerIssues && analyzerIssues.length > 0 && !modData.error) {
+                    modData.error = analyzerIssues[0].message;
+                }
+            } else if (modData.validationResult.hasErrors()) {
+                modData.status = 'validation-failed';
+            } else {
+                modData.status = 'success';
+            }
+            
+            // Backward compatibility: maintain old validationErrors format
+            // Include all validation errors except analyzer errors (which are shown separately)
+            modData.validationErrors = modData.validationResult.bySeverity.error
+                .filter(issue => issue.field !== 'analyzer')
+                .map(issue => ({
+                    field: issue.field,
+                    message: issue.message
+                }));
+            
+            // Derive error categories from validation result
+            modData.errorCategories = {
+                validation: modData.validationErrors,
+                analyzer: modData.validationResult.byField.get('analyzer') || [],
+                stderr: modData.errors || [],
+                other: []
+            };
+            
+            // Mark as validated
+            modData.validationComplete = true;
+            
             // Add to processed mods list and select it
             this.processedMods.unshift(modData);
             
@@ -357,7 +409,9 @@ class ModAnalyzer {
                     stderr: error.message,
                     stdout: '',
                     data: {},
-                    processingTime: 0
+                    processingTime: 0,
+                    success: false,
+                    error: error.message
                 },
                 parsed: {
                     name: 'unknown',
@@ -369,8 +423,22 @@ class ModAnalyzer {
                     path: '',
                     stderr: error.message
                 },
-                errors: []
+                errors: [],
+                errorsByFile: new Map()
             };
+            
+            // Run validation on failed mod too
+            modData.validationResult = this.validationRegistry.validate(modData);
+            
+            // Backward compatibility
+            modData.validationErrors = [];
+            modData.errorCategories = {
+                validation: [],
+                analyzer: modData.validationResult.byField.get('analyzer') || [],
+                stderr: [],
+                other: []
+            };
+            modData.validationComplete = true;
             
             this.processedMods.unshift(modData);
             this.renderModList();
@@ -465,27 +533,32 @@ class ModAnalyzer {
         
         this.renderModList();
         
-        // Notify all tabs and wait for them to load
-        const promises = [];
-        for (const tab of Object.values(this.tabs)) {
-            promises.push(tab.onFileProcessed(mod));
+        // Determine if this is the first time loading this mod
+        const needsProcessing = !mod.tabsInitialized;
+        
+        if (needsProcessing) {
+            // First time loading this mod - call onFileProcessed on all tabs
+            const promises = [];
+            for (const tab of Object.values(this.tabs)) {
+                promises.push(tab.onFileProcessed(mod));
+            }
+            await Promise.all(promises);
+            mod.tabsInitialized = true;
+        } else {
+            // Mod already loaded - just update the current mod reference (lightweight)
+            for (const tab of Object.values(this.tabs)) {
+                tab.setCurrentMod(mod);
+            }
         }
-        await Promise.all(promises);
         
         // Only render the currently active tab immediately
         const activeTab = document.querySelector('.tab.active')?.dataset.tab;
         if (activeTab && this.tabs[activeTab]) {
             this.tabs[activeTab].render();
+            this.tabs[activeTab].needsRender = false;
         }
         
-        // Defer rendering of other tabs to avoid blocking
-        requestIdleCallback(() => {
-            for (const [name, tab] of Object.entries(this.tabs)) {
-                if (name !== activeTab) {
-                    tab.render();
-                }
-            }
-        }, { timeout: 1000 });
+        // Don't render inactive tabs - they will render when switched to
     }
     
     switchTab(tabName) {
@@ -500,8 +573,13 @@ class ModAnalyzer {
             content.classList.toggle('active', isActive);
         });
         
-        // Render tab
-        this.tabs[tabName].render();
+        // Only render the tab if we have a current mod and it needs rendering
+        if (this.currentModIndex !== null && this.tabs[tabName]) {
+            if (this.tabs[tabName].needsRender) {
+                this.tabs[tabName].render();
+                this.tabs[tabName].needsRender = false;
+            }
+        }
     }
     
     switchSubTab(subTabName) {

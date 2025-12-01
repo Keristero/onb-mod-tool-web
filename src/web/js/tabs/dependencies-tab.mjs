@@ -81,6 +81,21 @@ export default class DependenciesTab extends BaseTab {
         }
     }
     
+    setCurrentMod(mod) {
+        // Set as current mod
+        this.currentMod = mod;
+        this.needsRender = true;
+        
+        // Add to session mods if not already there
+        const existing = this.sessionMods.find(m => m.id === mod.id);
+        if (!existing && mod.parsed) {
+            this.sessionMods.push(mod);
+        } else if (existing && mod.parsed) {
+            // Update existing
+            Object.assign(existing, mod);
+        }
+    }
+    
     render() {
         // Render both views
         this.renderFileDeps();

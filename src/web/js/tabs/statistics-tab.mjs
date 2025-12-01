@@ -79,6 +79,25 @@ export default class StatisticsTab extends BaseTab {
         }
     }
     
+    setCurrentMod(mod) {
+        // Set as current mod
+        this.currentMod = mod;
+        this.needsRender = true;
+        
+        // Add to session mods if not already there
+        const existing = this.sessionMods.find(m => m.id === mod.id);
+        if (!existing && mod.parsed) {
+            // Limit session mods to prevent performance issues
+            if (this.sessionMods.length >= this.maxSessionMods) {
+                this.sessionMods.pop(); // Remove oldest
+            }
+            this.sessionMods.unshift(mod); // Add to front
+        } else if (existing && mod.parsed) {
+            // Update existing
+            Object.assign(existing, mod);
+        }
+    }
+    
     render() {
         // Debounce rendering for better performance
         if (this.renderDebounceTimer) {

@@ -5,6 +5,7 @@ export default class BaseTab {
         this.container = null;
         this.currentMod = null;
         this.zipArchive = null;
+        this.needsRender = false;
     }
     
     /**
@@ -16,20 +17,35 @@ export default class BaseTab {
     }
     
     /**
-     * Called when a mod file is processed
+     * Set the current mod (lightweight operation - just updates reference)
+     * This should be called instead of onFileProcessed when switching between already-loaded mods
+     */
+    setCurrentMod(mod) {
+        this.currentMod = mod;
+        this.zipArchive = mod?.zipArchive || null;
+        this.needsRender = true;
+    }
+    
+    /**
+     * Called when a mod file is processed for the FIRST time
      * Subclasses can override to handle mod-specific updates
      */
     async onFileProcessed(mod) {
         this.currentMod = mod;
         
-        // Load zip archive if available
-        if (mod.fileData) {
+        // Load zip archive if available and not already cached
+        if (mod.fileData && !mod.zipArchive) {
             try {
-                this.zipArchive = await JSZip.loadAsync(mod.fileData);
+                mod.zipArchive = await JSZip.loadAsync(mod.fileData);
+                this.zipArchive = mod.zipArchive;
             } catch (error) {
                 console.error('Failed to load zip:', error);
                 this.zipArchive = null;
+                mod.zipArchive = null;
             }
+        } else if (mod.zipArchive) {
+            // Use cached zip archive
+            this.zipArchive = mod.zipArchive;
         }
     }
     
