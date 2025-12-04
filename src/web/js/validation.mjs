@@ -162,7 +162,7 @@ export function createDefaultRegistry() {
     const registry = new ValidationRegistry();
     
     // Invalid field values
-    const INVALID_VALUES = ['none', 'null', '', 'unknown'];
+    const INVALID_VALUES = ['none', 'null', '', 'unknown', 'unnamed', 'unnamed mod'];
     const INVALID_VERSION_VALUES = ['none', 'null', '', '0.0.0'];
     
     // Name validator

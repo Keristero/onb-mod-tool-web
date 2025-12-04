@@ -75,6 +75,13 @@ export function parseAnalysisResult(result) {
     const uuid = result.data.uuid || result.data.id || '';
     const uuidInfo = parseUuid(uuid);
     
+    // Debug logging for unnamed values
+    const rawName = result.data.name;
+    const rawId = result.data.id;
+    if (!rawName || String(rawName).toLowerCase().includes('unnamed')) {
+        console.warn('WASM returned unnamed/missing name:', { rawName, rawId, uuid, result: result.data });
+    }
+    
     // Prefer UUID-extracted values, fallback to direct fields
     return {
         valid: true,
