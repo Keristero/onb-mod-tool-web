@@ -113,67 +113,39 @@ export function extractErrors(stderr) {
     const errors = [];
     const lines = stderr.split('\n');
     
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         const trimmed = line.trim();
         if (!trimmed) continue;
         
-        // Match ERR: prefix
-        if (line.startsWith('ERR:')) {
-            errors.push({
-                type: 'error',
-                message: line.substring(5).trim(),
-                line: line.trim(),
-                isContext: false
-            });
-        } 
-        // Match WARN: prefix
-        else if (line.startsWith('WARN:')) {
-            errors.push({
-                type: 'warning',
-                message: line.substring(6).trim(),
-                line: line.trim(),
-                isContext: false
-            });
+        // Skip context lines (indented lines starting with "...")
+        // These provide stack trace info but aren't errors themselves
+        if (/^\s+\.\.\./.test(line)) {
+            continue;
         }
-        // Match parser errors with location format: [line:column] message
-        else if (/^\[\d+:\d+\]/.test(trimmed)) {
-            errors.push({
-                type: 'error',
-                message: trimmed,
-                line: trimmed,
-                isContext: false
-            });
+        
+        // Skip summary lines
+        if (trimmed.startsWith('Errors while evaluating')) {
+            continue;
         }
-        // Match "Errors while evaluating" messages
-        // These are summary lines, not actual errors
-        else if (trimmed.startsWith('Errors while evaluating')) {
-            errors.push({
-                type: 'context',
-                message: trimmed,
-                line: trimmed,
-                isContext: true
-            });
-        }
-        // Match indented error context (lines starting with tab or spaces followed by "...")
-        // These are stack trace/context lines, not actual errors
-        else if (/^\s+\.\.\./.test(line)) {
-            errors.push({
-                type: 'context',
-                message: trimmed,
-                line: trimmed,
-                isContext: true
-            });
-        }
-        // Catch any other non-empty line as a potential error message
-        // This ensures we don't miss error messages with unexpected formats
-        else if (trimmed.length > 0) {
-            errors.push({
-                type: 'error',
-                message: trimmed,
-                line: trimmed,
-                isContext: false
-            });
-        }
+        
+        // Everything else that's not empty is treated as an stderr error
+        // This includes:
+        // - ERR: prefixed errors
+        // - WARN: prefixed warnings
+        // - [line:column] location-based errors
+        // - Script missing: errors
+        // - Other runtime errors like "A programmer forgot..."
+        // - Function argument mismatches
+        // - Any other error messages
+        
+        const errorType = line.startsWith('WARN:') ? 'warning' : 'error';
+        errors.push({
+            type: errorType,
+            message: trimmed,
+            line: trimmed,
+            isContext: false
+        });
     }
     
     return errors;
@@ -449,7 +421,7 @@ export function validateModSummary(parsed, errorCount) {
     if (errorCount > 0) {
         validationErrors.push({
             field: 'errors',
-            message: `Mod has ${errorCount} parser error(s) that must be resolved`
+            message: `Mod has ${errorCount} stderr error(s) that must be resolved`
         });
     }
     

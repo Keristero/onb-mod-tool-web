@@ -560,7 +560,10 @@ class ModAnalyzer {
         
         // Only render the tab if we have a current mod and it needs rendering
         if (this.currentModIndex !== null && this.tabs[tabName]) {
-            if (this.tabs[tabName].needsRender) {
+            // Call onShow if the tab implements it
+            if (typeof this.tabs[tabName].onShow === 'function') {
+                this.tabs[tabName].onShow();
+            } else if (this.tabs[tabName].needsRender) {
                 this.tabs[tabName].render();
                 this.tabs[tabName].needsRender = false;
             }

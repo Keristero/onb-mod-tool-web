@@ -273,23 +273,19 @@ export function createDefaultRegistry() {
         }
     }));
     
-    // Parser errors validator (uses pre-parsed errorsByFile)
+    // Stderr errors validator (uses mod.errors from extractErrors)
     registry.register(new ValidationNode({
-        id: 'parser-errors',
-        name: 'Parser Errors',
+        id: 'stderr-errors',
+        name: 'Stderr Errors',
         field: 'errors',
         severity: 'error',
         check: (mod) => {
-            if (!mod.errorsByFile) return null;
-            
-            let count = 0;
-            for (const errors of mod.errorsByFile.values()) {
-                count += errors.length;
-            }
+            // Count all non-context stderr errors
+            const count = mod.errors?.filter(e => !e.isContext && e.type === 'error').length || 0;
             
             if (count > 0) {
                 return { 
-                    message: `Mod has ${count} parser error(s) that must be resolved`,
+                    message: `Mod has ${count} stderr error(s) that must be resolved`,
                     value: count 
                 };
             }

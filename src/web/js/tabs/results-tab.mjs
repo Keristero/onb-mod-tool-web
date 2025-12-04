@@ -100,7 +100,7 @@ export default class ResultsTab extends BaseTab {
         // Use validation result for accurate error counts
         const validationResult = this.currentMod?.validationResult;
         
-        // Get parser error count from validation result (single source of truth)
+        // Get stderr error count from validation result (single source of truth)
         const parserErrorIssue = validationResult?.byField.get('errors')?.[0];
         const parserErrorCount = parserErrorIssue?.value || 0;
         

@@ -12,6 +12,8 @@ export default class DependenciesTab extends BaseTab {
         this.sessionContainer = null;
         this.fileGraph = null;
         this.sessionGraph = null;
+        this.fileContentCache = new Map(); // Cache for loaded file contents
+        this.fileTreeCache = new Map(); // Cache for built file trees
     }
     
     async init(container) {
@@ -71,6 +73,19 @@ export default class DependenciesTab extends BaseTab {
         // Set as current mod
         this.currentMod = mod;
         
+        // Clear caches for this mod
+        const modCachePrefix = `${mod.id}/`;
+        for (const key of this.fileContentCache.keys()) {
+            if (key.startsWith(modCachePrefix)) {
+                this.fileContentCache.delete(key);
+            }
+        }
+        for (const key of this.fileTreeCache.keys()) {
+            if (key.startsWith(modCachePrefix)) {
+                this.fileTreeCache.delete(key);
+            }
+        }
+        
         // Add to session mods if not already there
         const existing = this.sessionMods.find(m => m.id === mod.id);
         if (!existing && mod.parsed) {
@@ -85,6 +100,19 @@ export default class DependenciesTab extends BaseTab {
         // Set as current mod
         this.currentMod = mod;
         this.needsRender = true;
+        
+        // Clear caches for this mod
+        const modCachePrefix = `${mod.id}/`;
+        for (const key of this.fileContentCache.keys()) {
+            if (key.startsWith(modCachePrefix)) {
+                this.fileContentCache.delete(key);
+            }
+        }
+        for (const key of this.fileTreeCache.keys()) {
+            if (key.startsWith(modCachePrefix)) {
+                this.fileTreeCache.delete(key);
+            }
+        }
         
         // Add to session mods if not already there
         const existing = this.sessionMods.find(m => m.id === mod.id);
@@ -105,7 +133,7 @@ export default class DependenciesTab extends BaseTab {
     renderFileDeps() {
         if (!this.currentMod || !this.currentMod.parsed) {
             this.setHTMLForContainer(this.fileContainer, '#file-dependency-graph', 
-                '<div class="empty-state">No mod selected. Process a mod to see its dependencies and file includes.</div>');
+                '<div class="empty-state">No mod selected. Process a mod to see its dependencies and file hierarchy.</div>');
             return;
         }
         
@@ -129,6 +157,225 @@ export default class DependenciesTab extends BaseTab {
         }
     }
     
+    /**
+     * Extract file content from mod ZIP archive
+     * @param {Object} mod - Mod object with fileData
+     * @param {string} filePath - Path to file within archive
+     * @returns {Promise<string|null>} File content or null if not found
+     */
+    async getFileContent(mod, filePath) {
+        // Check cache first
+        const cacheKey = `${mod.id}/${filePath}`;
+        if (this.fileContentCache.has(cacheKey)) {
+            return this.fileContentCache.get(cacheKey);
+        }
+        
+        try {
+            const zip = await JSZip.loadAsync(mod.fileData);
+            const file = zip.file(filePath);
+            if (!file) {
+                this.fileContentCache.set(cacheKey, null);
+                return null;
+            }
+            const content = await file.async('text');
+            this.fileContentCache.set(cacheKey, content);
+            return content;
+        } catch (error) {
+            console.error(`Error reading file ${filePath}:`, error);
+            this.fileContentCache.set(cacheKey, null);
+            return null;
+        }
+    }
+    
+    /**
+     * Parse Lua file content to extract include() calls
+     * @param {string} content - Lua file content
+     * @returns {Array<string>} Array of included file paths
+     */
+    parseIncludesFromLua(content) {
+        if (!content) return [];
+        
+        const includes = [];
+        const lines = content.split('\n');
+        
+        // Regex patterns for different include formats
+        const doubleQuoteRegex = /include\s*\(\s*"([^"]+)"\s*\)/g;
+        const singleQuoteRegex = /include\s*\(\s*'([^']+)'\s*\)/g;
+        const longStringRegex = /include\s*\(\s*\[\[([^\]]+)\]\]\s*\)/g;
+        
+        for (const line of lines) {
+            // Skip commented lines
+            const trimmed = line.trim();
+            if (trimmed.startsWith('--')) continue;
+            
+            // Try all regex patterns
+            let match;
+            
+            // Double quotes
+            while ((match = doubleQuoteRegex.exec(line)) !== null) {
+                includes.push(match[1]);
+            }
+            
+            // Single quotes
+            while ((match = singleQuoteRegex.exec(line)) !== null) {
+                includes.push(match[1]);
+            }
+            
+            // Long string syntax
+            while ((match = longStringRegex.exec(line)) !== null) {
+                includes.push(match[1]);
+            }
+        }
+        
+        return includes;
+    }
+    
+    /**
+     * Build hierarchical file tree from include relationships
+     * @param {Object} mod - Mod object
+     * @param {string} entryFile - Entry point file path
+     * @returns {Promise<Object>} Tree structure with {path, children, missing, circular}
+     */
+    async buildFileTree(mod, entryFile = 'entry.lua') {
+        // Check cache first
+        const cacheKey = `${mod.id}/${entryFile}`;
+        if (this.fileTreeCache.has(cacheKey)) {
+            return this.fileTreeCache.get(cacheKey);
+        }
+        
+        // Extract missing files from stderr errors
+        const missingFiles = new Set();
+        if (mod.errors) {
+            mod.errors.forEach(error => {
+                // Look for "Script missing: filename" errors
+                const match = error.message.match(/Script missing:\s*([^\s.]+(?:\.[^.\s]+)?)/);
+                if (match) {
+                    missingFiles.add(match[1]);
+                }
+            });
+        }
+        
+        const visited = new Set();
+        const tree = { path: entryFile, children: [], missing: false, circular: false };
+        
+        const traverse = async (node, currentPath, pathStack = []) => {
+            // Check for circular dependency
+            if (pathStack.includes(currentPath)) {
+                node.circular = true;
+                return;
+            }
+            
+            // Check if already visited
+            if (visited.has(currentPath)) {
+                return;
+            }
+            visited.add(currentPath);
+            
+            // Check if file is reported as missing by analyzer
+            const fileName = currentPath.split('/').pop();
+            if (missingFiles.has(currentPath) || missingFiles.has(fileName)) {
+                node.missing = true;
+                return;
+            }
+            
+            // Get file content
+            const content = await this.getFileContent(mod, currentPath);
+            if (!content) {
+                // File doesn't exist in ZIP, but only mark as missing if analyzer reported it
+                if (missingFiles.has(currentPath) || missingFiles.has(fileName)) {
+                    node.missing = true;
+                }
+                return;
+            }
+            
+            // Parse includes
+            const includes = this.parseIncludesFromLua(content);
+            
+            // Create child nodes
+            for (const includePath of includes) {
+                const childNode = { 
+                    path: includePath, 
+                    children: [], 
+                    missing: false, 
+                    circular: false 
+                };
+                node.children.push(childNode);
+                
+                // Recursively traverse
+                await traverse(childNode, includePath, [...pathStack, currentPath]);
+            }
+        };
+        
+        await traverse(tree, entryFile);
+        
+        // Cache the tree
+        this.fileTreeCache.set(cacheKey, tree);
+        
+        return tree;
+    }
+    
+    /**
+     * Convert file tree to D3 graph format (nodes and links)
+     * @param {Object} tree - File tree structure
+     * @param {string} parentModId - Parent mod package ID
+     * @returns {Object} {nodes: [], links: [], depth: number}
+     */
+    treeToGraphData(tree, parentModId) {
+        const nodes = [];
+        const links = [];
+        let maxDepth = 0;
+        
+        const traverse = (node, depth = 0, parentFileId = null, isRoot = false) => {
+            maxDepth = Math.max(maxDepth, depth);
+            
+            const fileId = `${parentModId}/${node.path}`;
+            const fileName = node.path.split('/').pop();
+            
+            // Skip creating node for root entry.lua - only process its children
+            if (!isRoot) {
+                // Create node
+                const graphNode = {
+                    id: fileId,
+                    name: fileName,
+                    fullPath: node.path,
+                    category: 'file',
+                    type: 'file',
+                    hasData: !node.missing,
+                    parentMod: parentModId,
+                    depth: depth,
+                    missing: node.missing,
+                    circular: node.circular
+                };
+                nodes.push(graphNode);
+                
+                // Create link to parent (either mod or parent file)
+                if (parentFileId) {
+                    links.push({
+                        source: parentFileId,
+                        target: fileId,
+                        type: 'file-include'
+                    });
+                } else {
+                    // Non-root files without parent link to mod
+                    links.push({
+                        source: parentModId,
+                        target: fileId,
+                        type: 'contains'
+                    });
+                }
+            }
+            
+            // Process children - for root, link them directly to mod
+            for (const child of node.children) {
+                traverse(child, isRoot ? 0 : depth + 1, isRoot ? parentModId : fileId, false);
+            }
+        };
+        
+        traverse(tree, 0, null, true);
+        
+        return { nodes, links, depth: maxDepth };
+    }
+    
     buildGraph(mode, modsToProcess) {
         const containerSelector = mode === 'file' ? '#file-dependency-graph' : '#session-dependency-graph';
         const container = mode === 'file' ? this.fileContainer : this.sessionContainer;
@@ -144,91 +391,108 @@ export default class DependenciesTab extends BaseTab {
         const links = [];
         const nodeMap = new Map();
         
-        modsToProcess.forEach(mod => {
-            if (!mod.parsed) return;
-            
-            const deps = parser.extractDependencies(mod.parsed);
-            
-            // Add main mod node
-            if (!nodeMap.has(deps.packageId)) {
-                const node = {
-                    id: deps.packageId,
-                    name: mod.parsed.name,
-                    category: mod.parsed.category,
-                    type: 'mod',
-                    hasData: true
-                };
-                nodes.push(node);
-                nodeMap.set(deps.packageId, node);
-            }
-            
-            // Add package dependency nodes and links
-            deps.dependencies.forEach(depId => {
-                if (!nodeMap.has(depId)) {
+        // Process mods asynchronously
+        const processModsAsync = async () => {
+            for (const mod of modsToProcess) {
+                if (!mod.parsed) continue;
+                
+                const deps = parser.extractDependencies(mod.parsed);
+                
+                // Add main mod node
+                if (!nodeMap.has(deps.packageId)) {
                     const node = {
-                        id: depId,
-                        name: depId,
-                        category: 'external',
-                        type: 'package',
-                        hasData: false
+                        id: deps.packageId,
+                        name: mod.parsed.name,
+                        category: mod.parsed.category,
+                        type: 'mod',
+                        hasData: true
                     };
                     nodes.push(node);
-                    nodeMap.set(depId, node);
+                    nodeMap.set(deps.packageId, node);
                 }
                 
-                links.push({
-                    source: deps.packageId,
-                    target: depId,
-                    type: 'package-dependency'
-                });
-            });
-            
-            // Add file nodes and includes (if data available)
-            if (mod.result && mod.result.data && mod.result.data.resources) {
-                const resources = mod.result.data.resources;
-                
-                // Get all .lua files
-                const luaFiles = [];
-                if (resources.incs) {
-                    luaFiles.push(...resources.incs);
-                }
-                
-                // Create file nodes
-                luaFiles.forEach(filePath => {
-                    const fileId = `${deps.packageId}/${filePath}`;
-                    if (!nodeMap.has(fileId)) {
-                        const fileName = filePath.split('/').pop();
+                // Add package dependency nodes and links
+                deps.dependencies.forEach(depId => {
+                    if (!nodeMap.has(depId)) {
                         const node = {
-                            id: fileId,
-                            name: fileName,
-                            fullPath: filePath,
-                            category: 'file',
-                            type: 'file',
-                            hasData: true,
-                            parentMod: deps.packageId
+                            id: depId,
+                            name: depId,
+                            category: 'external',
+                            type: 'package',
+                            hasData: false
                         };
                         nodes.push(node);
-                        nodeMap.set(fileId, node);
-                        
-                        // Link file to its mod
-                        links.push({
-                            source: deps.packageId,
-                            target: fileId,
-                            type: 'contains'
-                        });
+                        nodeMap.set(depId, node);
                     }
+                    
+                    links.push({
+                        source: deps.packageId,
+                        target: depId,
+                        type: 'package-dependency'
+                    });
                 });
                 
-                // TODO: Parse file includes from actual file content
-                // For now, just show files belong to mod
+                // Add file nodes using hierarchical tree
+                if (mod.result && mod.result.data && mod.result.data.resources) {
+                    const resources = mod.result.data.resources;
+                    
+                    // Build file tree from entry point
+                    try {
+                        const tree = await this.buildFileTree(mod, 'entry.lua');
+                        const treeData = this.treeToGraphData(tree, deps.packageId);
+                        
+                        // Add nodes and links from tree
+                        treeData.nodes.forEach(node => {
+                            if (!nodeMap.has(node.id)) {
+                                nodes.push(node);
+                                nodeMap.set(node.id, node);
+                            }
+                        });
+                        
+                        treeData.links.forEach(link => {
+                            links.push(link);
+                        });
+                    } catch (error) {
+                        console.error('Error building file tree:', error);
+                        // Fallback to flat file list if tree building fails
+                        const luaFiles = resources.incs || [];
+                        luaFiles.forEach(filePath => {
+                            const fileId = `${deps.packageId}/${filePath}`;
+                            if (!nodeMap.has(fileId)) {
+                                const fileName = filePath.split('/').pop();
+                                const node = {
+                                    id: fileId,
+                                    name: fileName,
+                                    fullPath: filePath,
+                                    category: 'file',
+                                    type: 'file',
+                                    hasData: true,
+                                    parentMod: deps.packageId
+                                };
+                                nodes.push(node);
+                                nodeMap.set(fileId, node);
+                                
+                                // Link file to its mod
+                                links.push({
+                                    source: deps.packageId,
+                                    target: fileId,
+                                    type: 'contains'
+                                });
+                            }
+                        });
+                    }
+                }
             }
-        });
+            
+            // Detect circular dependencies
+            const cycles = this.detectCycles(nodes, links);
+            
+            // Render with D3
+            this.renderD3Graph(nodes, links, cycles, mode, container, containerSelector);
+        };
         
-        // Detect circular dependencies
-        const cycles = this.detectCycles(nodes, links);
-        
-        // Render with D3
-        this.renderD3Graph(nodes, links, cycles, mode, container, containerSelector);
+        // Execute async processing
+        processModsAsync();
     }
     
     detectCycles(nodes, links) {
@@ -311,12 +575,25 @@ export default class DependenciesTab extends BaseTab {
         // Nodes in cycles
         const cycleNodes = new Set(cycles.flat());
         
-        // Create force simulation
+        // Create force simulation with hierarchical adjustments
         const simulation = d3.forceSimulation(nodes)
-            .force('link', d3.forceLink(links).id(d => d.id).distance(100))
-            .force('charge', d3.forceManyBody().strength(-300))
+            .force('link', d3.forceLink(links).id(d => d.id).distance(d => {
+                // Shorter distance for file-include links to show hierarchy
+                return d.type === 'file-include' ? 80 : 100;
+            }))
+            .force('charge', d3.forceManyBody().strength(d => {
+                // Less repulsion for file nodes to keep them closer
+                return d.type === 'file' ? -200 : -300;
+            }))
             .force('center', d3.forceCenter(width / 2, height / 2))
-            .force('collision', d3.forceCollide().radius(30));
+            .force('collision', d3.forceCollide().radius(30))
+            .force('y', d3.forceY().y(d => {
+                // Optional: push files down based on depth for top-down layout
+                if (d.type === 'file' && d.depth !== undefined) {
+                    return 100 + (d.depth * 120);
+                }
+                return height / 2;
+            }).strength(0.1));
         
         // Create links
         const link = g.append('g')
@@ -364,12 +641,16 @@ export default class DependenciesTab extends BaseTab {
             .attr('r', d => d.type === 'file' ? 12 : 20)
             .attr('fill', d => {
                 if (cycleNodes.has(d.id)) return 'var(--error-color)';
+                if (d.missing) return 'var(--warning-color)';
                 if (d.type === 'file') return 'var(--success-color)';
                 if (!d.hasData) return 'var(--text-secondary)';
                 return 'var(--primary-color)';
             })
-            .attr('stroke', 'var(--bg-color)')
-            .attr('stroke-width', 2);
+            .attr('stroke', d => {
+                if (d.circular) return 'var(--error-color)';
+                return 'var(--bg-color)';
+            })
+            .attr('stroke-width', d => d.circular ? 3 : 2);
         
         // Add labels
         node.append('text')
@@ -387,7 +668,11 @@ export default class DependenciesTab extends BaseTab {
         node.append('title')
             .text(d => {
                 if (d.type === 'file') {
-                    return `File: ${d.name}\nPath: ${d.fullPath}\nMod: ${d.parentMod}`;
+                    let info = `File: ${d.name}\nPath: ${d.fullPath}\nMod: ${d.parentMod}`;
+                    if (d.depth !== undefined) info += `\nDepth: ${d.depth}`;
+                    if (d.missing) info += `\nStatus: Missing`;
+                    if (d.circular) info += `\nStatus: Circular include detected`;
+                    return info;
                 }
                 return `${d.name}\nID: ${d.id}\nCategory: ${d.category}\nType: ${d.type}`;
             });
@@ -428,6 +713,10 @@ export default class DependenciesTab extends BaseTab {
         const modNodes = nodes.filter(n => n.type === 'mod' || n.type === 'package');
         const fileNodes = nodes.filter(n => n.type === 'file');
         const externalNodes = nodes.filter(n => !n.hasData && n.type !== 'file').length;
+        const missingFiles = fileNodes.filter(n => n.missing).length;
+        
+        // Calculate max tree depth
+        const maxDepth = Math.max(0, ...fileNodes.map(n => n.depth || 0));
         
         const modeName = mode === 'file' && this.currentMod 
             ? `Current: ${this.currentMod.parsed.name}` 
@@ -448,6 +737,9 @@ export default class DependenciesTab extends BaseTab {
                     <strong>Files:</strong> ${fileNodes.length}
                 </div>
                 <div class="info-item">
+                    <strong>Tree Depth:</strong> ${maxDepth}
+                </div>
+                <div class="info-item">
                     <strong>External Dependencies:</strong> ${externalNodes}
                 </div>
                 <div class="info-item">
@@ -456,6 +748,11 @@ export default class DependenciesTab extends BaseTab {
                 <div class="info-item ${cycles.length > 0 ? 'error' : 'success'}">
                     <strong>Circular Dependencies:</strong> ${cycles.length > 0 ? '⚠ ' + cycles.length + ' detected' : '✓ None'}
                 </div>
+                ${missingFiles > 0 ? `
+                <div class="info-item error">
+                    <strong>Missing Files:</strong> ⚠ ${missingFiles}
+                </div>
+                ` : ''}
             </div>
             <div style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-color); border-radius: 4px; font-size: 0.875rem;">
                 <strong>Legend:</strong>
@@ -463,6 +760,7 @@ export default class DependenciesTab extends BaseTab {
                 <span style="margin-left: 1rem; color: var(--success-color);">● File</span>
                 <span style="margin-left: 1rem; color: var(--text-secondary);">● External</span>
                 <span style="margin-left: 1rem; color: var(--error-color);">● Circular</span>
+                ${missingFiles > 0 ? `<span style="margin-left: 1rem; color: var(--warning-color);">● Missing</span>` : ''}
             </div>
             ${cycles.length > 0 ? `
                 <div class="cycle-warning">
@@ -493,19 +791,68 @@ export default class DependenciesTab extends BaseTab {
     exportPNG(mode) {
         const container = mode === 'file' ? this.fileContainer : this.sessionContainer;
         const svgSelector = mode === 'file' ? '#file-dependency-graph svg' : '#session-dependency-graph svg';
-        const svg = container.querySelector(svgSelector);
-        if (!svg) return;
+        const svgElement = container.querySelector(svgSelector);
+        if (!svgElement) return;
         
-        const svgData = new XMLSerializer().serializeToString(svg);
+        // Clone the SVG to avoid modifying the original
+        const svgClone = svgElement.cloneNode(true);
+        
+        // Get the inner group (where nodes/links are rendered)
+        const gElement = svgClone.querySelector('g');
+        if (!gElement) return;
+        
+        // Get the bounding box of all content
+        const bbox = this.getGraphBoundingBox(mode);
+        if (!bbox) return;
+        
+        // Add padding around the content
+        const padding = 40;
+        const contentWidth = bbox.width + (padding * 2);
+        const contentHeight = bbox.height + (padding * 2);
+        
+        // Reset any transform on the group and center the content
+        gElement.setAttribute('transform', `translate(${padding - bbox.x}, ${padding - bbox.y})`);
+        
+        // Update SVG dimensions to fit content
+        svgClone.setAttribute('width', contentWidth);
+        svgClone.setAttribute('height', contentHeight);
+        svgClone.setAttribute('viewBox', `0 0 ${contentWidth} ${contentHeight}`);
+        
+        // Get computed styles to resolve CSS variables
+        const computedStyle = getComputedStyle(document.documentElement);
+        const cssVars = {
+            '--bg-color': computedStyle.getPropertyValue('--bg-color').trim(),
+            '--text-color': computedStyle.getPropertyValue('--text-color').trim(),
+            '--text-secondary': computedStyle.getPropertyValue('--text-secondary').trim(),
+            '--primary-color': computedStyle.getPropertyValue('--primary-color').trim(),
+            '--success-color': computedStyle.getPropertyValue('--success-color').trim(),
+            '--error-color': computedStyle.getPropertyValue('--error-color').trim(),
+            '--warning-color': computedStyle.getPropertyValue('--warning-color').trim(),
+            '--border-color': computedStyle.getPropertyValue('--border-color').trim()
+        };
+        
+        // Replace CSS variables in the clone
+        this.replaceCSSVariables(svgClone, cssVars);
+        
+        // Create canvas at native resolution
+        const scale = 1;
         const canvas = document.createElement('canvas');
+        canvas.width = contentWidth * scale;
+        canvas.height = contentHeight * scale;
+        
         const ctx = canvas.getContext('2d');
+        ctx.scale(scale, scale);
+        
+        // Fill background
+        ctx.fillStyle = cssVars['--bg-color'] || '#1e1e1e';
+        ctx.fillRect(0, 0, contentWidth, contentHeight);
+        
+        // Convert SVG to image and draw on canvas
+        const svgData = new XMLSerializer().serializeToString(svgClone);
         const img = new Image();
         
-        canvas.width = svg.clientWidth;
-        canvas.height = svg.clientHeight;
-        
         img.onload = () => {
-            ctx.drawImage(img, 0, 0);
+            ctx.drawImage(img, 0, 0, contentWidth, contentHeight);
             canvas.toBlob((blob) => {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -517,6 +864,76 @@ export default class DependenciesTab extends BaseTab {
         };
         
         img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+    }
+    
+    /**
+     * Get bounding box of all graph content
+     */
+    getGraphBoundingBox(mode) {
+        const graph = mode === 'file' ? this.fileGraph : this.sessionGraph;
+        if (!graph || !graph.nodes) return null;
+        
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+        
+        graph.nodes.forEach(node => {
+            if (node.x !== undefined && node.y !== undefined) {
+                const radius = node.type === 'file' ? 12 : 20;
+                minX = Math.min(minX, node.x - radius);
+                minY = Math.min(minY, node.y - radius - 35); // Account for label
+                maxX = Math.max(maxX, node.x + radius);
+                maxY = Math.max(maxY, node.y + radius + 10);
+            }
+        });
+        
+        return {
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY
+        };
+    }
+    
+    /**
+     * Replace CSS variables with computed values
+     */
+    replaceCSSVariables(element, cssVars) {
+        // Handle fill attribute
+        if (element.getAttribute && element.getAttribute('fill')) {
+            let fill = element.getAttribute('fill');
+            Object.keys(cssVars).forEach(varName => {
+                if (fill.includes(varName)) {
+                    fill = cssVars[varName];
+                    element.setAttribute('fill', fill);
+                }
+            });
+        }
+        
+        // Handle stroke attribute
+        if (element.getAttribute && element.getAttribute('stroke')) {
+            let stroke = element.getAttribute('stroke');
+            Object.keys(cssVars).forEach(varName => {
+                if (stroke.includes(varName)) {
+                    stroke = cssVars[varName];
+                    element.setAttribute('stroke', stroke);
+                }
+            });
+        }
+        
+        // Handle style attribute
+        if (element.getAttribute && element.getAttribute('style')) {
+            let style = element.getAttribute('style');
+            Object.keys(cssVars).forEach(varName => {
+                const regex = new RegExp(`var\\(${varName}\\)`, 'g');
+                style = style.replace(regex, cssVars[varName]);
+            });
+            element.setAttribute('style', style);
+        }
+        
+        // Recurse through children
+        if (element.children) {
+            Array.from(element.children).forEach(child => this.replaceCSSVariables(child, cssVars));
+        }
     }
     
     exportJSON(mode) {
@@ -556,6 +973,8 @@ export default class DependenciesTab extends BaseTab {
         this.currentMod = null;
         this.fileGraph = null;
         this.sessionGraph = null;
+        this.fileContentCache.clear();
+        this.fileTreeCache.clear();
         this.render();
     }
     

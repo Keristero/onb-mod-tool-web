@@ -2,6 +2,10 @@
 
 import * as parser from '../parser.mjs';
 import BaseTab from './base-tab.mjs';
+import { PIE_CHART_RADIUS, PIE_CHART_CENTER, CHART_COLORS, CATEGORY_COLORS, ERROR_COLORS, STATUS_COLORS } from '../constants.mjs';
+import { calculateStatistics } from './utilities/statistics-calculator.mjs';
+import { createPieChart, createBarChart, initializeChartTooltips } from './utilities/chart-renderer.mjs';
+import { exportToCSV, exportToXML } from './utilities/data-exporter.mjs';
 
 export default class StatisticsTab extends BaseTab {
     constructor() {
@@ -11,6 +15,7 @@ export default class StatisticsTab extends BaseTab {
         this.fileContainer = null;
         this.sessionContainer = null;
         this.renderDebounceTimer = null;
+        this.hasRendered = false;
     }
     
     async init(container) {
@@ -89,6 +94,15 @@ export default class StatisticsTab extends BaseTab {
         }
     }
     
+    onShow() {
+        // Called when tab becomes visible - render immediately
+        if (this.needsRender || !this.hasRendered) {
+            this.render();
+            this.needsRender = false;
+            this.hasRendered = true;
+        }
+    }
+    
     render() {
         // Debounce rendering for better performance
         if (this.renderDebounceTimer) {
@@ -104,6 +118,9 @@ export default class StatisticsTab extends BaseTab {
         // Render both views
         this.renderFileStats();
         this.renderSessionStats();
+        
+        // Set up chart tooltips after rendering
+        initializeChartTooltips();
     }
     
     renderFileStats() {
@@ -113,7 +130,7 @@ export default class StatisticsTab extends BaseTab {
             return;
         }
         
-        const stats = this.calculateStatsForMod(this.currentMod);
+        const stats = calculateStatistics(this.currentMod);
         const html = this.renderStats(stats, 'file');
         this.setHTMLForContainer(this.fileContainer, '#file-stats-content', html);
     }
@@ -125,7 +142,7 @@ export default class StatisticsTab extends BaseTab {
             return;
         }
         
-        const stats = this.calculateStats(this.sessionMods);
+        const stats = calculateStatistics(this.sessionMods);
         const html = this.renderStats(stats, 'session');
         this.setHTMLForContainer(this.sessionContainer, '#session-stats-content', html);
     }
@@ -135,199 +152,6 @@ export default class StatisticsTab extends BaseTab {
         if (element) {
             element.innerHTML = html;
         }
-    }
-    
-    calculateStatsForMod(mod) {
-        // Calculate statistics for a single mod using pre-categorized errors
-        const stats = {
-            total: 1,
-            successful: mod.status === 'success' ? 1 : 0,
-            validationFailed: mod.status === 'validation-failed' ? 1 : 0,
-            failed: mod.status === 'failed' ? 1 : 0,
-            successRate: mod.status === 'success' ? 100 : 0,
-            validationSuccessRate: (mod.status === 'success' || mod.status === 'validation-failed') ? 100 : 0,
-            avgTime: mod.processingTime || 0,
-            minTime: mod.processingTime || 0,
-            maxTime: mod.processingTime || 0,
-            errorTypes: {},
-            errorMessages: {},
-            errorsByFile: {},
-            categories: {},
-            totalErrors: 0,
-            validationErrors: 0,
-            analyzerErrors: 0,
-            stderrErrors: 0,
-            otherErrors: 0
-        };
-        
-        // Use pre-categorized errors
-        stats.validationErrors = mod.errorCategories?.validation?.length || 0;
-        stats.analyzerErrors = mod.errorCategories?.analyzer?.length || 0;
-        stats.stderrErrors = mod.errorCategories?.stderr?.length || 0;
-        stats.otherErrors = mod.errorCategories?.other?.length || 0;
-        
-        if (stats.validationErrors > 0) {
-            stats.errorTypes['Validation Errors'] = stats.validationErrors;
-        }
-        if (stats.analyzerErrors > 0) {
-            stats.errorTypes['Analyzer Errors'] = stats.analyzerErrors;
-        }
-        if (stats.stderrErrors > 0) {
-            stats.errorTypes['Stderr Errors'] = stats.stderrErrors;
-        }
-        if (stats.otherErrors > 0) {
-            stats.errorTypes['Other Errors'] = stats.otherErrors;
-        }
-        
-        stats.totalErrors = stats.validationErrors + stats.analyzerErrors + stats.stderrErrors + stats.otherErrors;
-        
-        // Track individual error messages
-        if (mod.errorCategories?.validation) {
-            mod.errorCategories.validation.forEach(error => {
-                const msg = `${error.field}: ${error.message}`;
-                stats.errorMessages[msg] = (stats.errorMessages[msg] || 0) + 1;
-            });
-        }
-        
-        if (mod.errorCategories?.stderr) {
-            stats.errorsByFile[mod.fileName] = mod.errorCategories.stderr.length;
-            mod.errorCategories.stderr.forEach(error => {
-                const msg = error.message || error.line || '';
-                const isStackTrace = msg.trim().startsWith('...');
-                const isEvalError = msg.startsWith('Errors while evaluating');
-                
-                if (!isStackTrace && !isEvalError && msg) {
-                    const cleanMsg = parser.cleanErrorMessage(msg);
-                    if (cleanMsg) {
-                        stats.errorMessages[cleanMsg] = (stats.errorMessages[cleanMsg] || 0) + 1;
-                    }
-                }
-            });
-        }
-        
-        // Category
-        if (mod.parsed && mod.parsed.category) {
-            stats.categories[mod.parsed.category] = 1;
-        }
-        
-        return stats;
-    }
-    
-    calculateStats(mods) {
-        const total = mods.length;
-        const successful = mods.filter(m => m.status === 'success').length;
-        const validationFailed = mods.filter(m => m.status === 'validation-failed').length;
-        const failed = mods.filter(m => m.status === 'failed').length;
-        
-        const processingTimes = mods
-            .filter(m => m.processingTime)
-            .map(m => m.processingTime);
-        
-        const avgTime = processingTimes.length > 0
-            ? processingTimes.reduce((a, b) => a + b, 0) / processingTimes.length
-            : 0;
-        
-        const minTime = processingTimes.length > 0 ? Math.min(...processingTimes) : 0;
-        const maxTime = processingTimes.length > 0 ? Math.max(...processingTimes) : 0;
-        
-        // Error analysis
-        const errorTypes = {};
-        const errorMessages = {};
-        const errorsByFile = {};
-        let totalValidationErrors = 0;
-        let totalAnalyzerErrors = 0;
-        let totalStderrErrors = 0;
-        let totalOtherErrors = 0;
-        
-        mods.forEach(mod => {
-            // Use pre-categorized errors
-            const valErrors = mod.errorCategories?.validation?.length || 0;
-            const analErrors = mod.errorCategories?.analyzer?.length || 0;
-            const stderrErrs = mod.errorCategories?.stderr?.length || 0;
-            const othErrors = mod.errorCategories?.other?.length || 0;
-            
-            totalValidationErrors += valErrors;
-            totalAnalyzerErrors += analErrors;
-            totalStderrErrors += stderrErrs;
-            totalOtherErrors += othErrors;
-            
-            if (valErrors > 0) {
-                errorTypes['Validation Errors'] = (errorTypes['Validation Errors'] || 0) + valErrors;
-            }
-            if (analErrors > 0) {
-                errorTypes['Analyzer Errors'] = (errorTypes['Analyzer Errors'] || 0) + analErrors;
-            }
-            if (stderrErrs > 0) {
-                errorTypes['Stderr Errors'] = (errorTypes['Stderr Errors'] || 0) + stderrErrs;
-                errorsByFile[mod.fileName] = stderrErrs;
-            }
-            if (othErrors > 0) {
-                errorTypes['Other Errors'] = (errorTypes['Other Errors'] || 0) + othErrors;
-            }
-            
-            // Track individual error messages
-            if (mod.errorCategories?.validation) {
-                mod.errorCategories.validation.forEach(error => {
-                    const msg = `${error.field}: ${error.message}`;
-                    errorMessages[msg] = (errorMessages[msg] || 0) + 1;
-                });
-            }
-            
-            if (mod.errorCategories?.stderr) {
-                mod.errorCategories.stderr.forEach(error => {
-                    const msg = error.message || error.line || '';
-                    const isStackTrace = msg.trim().startsWith('...');
-                    const isEvalError = msg.startsWith('Errors while evaluating');
-                    
-                    if (!isStackTrace && !isEvalError && msg) {
-                        const cleanMsg = parser.cleanErrorMessage(msg);
-                        if (cleanMsg) {
-                            errorMessages[cleanMsg] = (errorMessages[cleanMsg] || 0) + 1;
-                        }
-                    }
-                });
-            }
-        });
-        
-        // Calculate total errors
-        const totalErrors = totalValidationErrors + totalAnalyzerErrors + totalStderrErrors + totalOtherErrors;
-        
-        // Category breakdown
-        const categories = {};
-        mods.forEach(mod => {
-            if (mod.parsed && mod.parsed.category) {
-                const cat = mod.parsed.category;
-                categories[cat] = (categories[cat] || 0) + 1;
-            }
-        });
-        
-        // Collect failed mods for detailed list
-        const failedMods = mods.filter(m => m.status === 'failed').map(m => ({
-            fileName: m.fileName,
-            error: m.error || 'Parser failure'
-        }));
-        
-        return {
-            total,
-            successful,
-            validationFailed,
-            failed,
-            successRate: total > 0 ? ((successful + validationFailed) / total * 100).toFixed(1) : 0,
-            validationSuccessRate: total > 0 ? (successful / total * 100).toFixed(1) : 0,
-            avgTime,
-            minTime,
-            maxTime,
-            errorTypes,
-            errorMessages,
-            errorsByFile,
-            categories,
-            totalErrors,
-            validationErrors: totalValidationErrors,
-            analyzerErrors: totalAnalyzerErrors,
-            stderrErrors: totalStderrErrors,
-            otherErrors: totalOtherErrors,
-            failedMods
-        };
     }
     
     escapeHtml(text) {
@@ -343,14 +167,10 @@ export default class StatisticsTab extends BaseTab {
             </div>
             
             <div class="stats-charts">
+                <!-- Pie charts side by side -->
                 <div class="chart-container">
                     <h3>Success Rate</h3>
                     ${this.renderSuccessRateChart(stats)}
-                </div>
-                
-                <div class="chart-container">
-                    <h3>Processing Time ${mode === 'file' ? '' : 'Distribution'}</h3>
-                    ${this.renderProcessingTimeChart(stats)}
                 </div>
                 
                 <div class="chart-container">
@@ -358,27 +178,57 @@ export default class StatisticsTab extends BaseTab {
                     ${this.renderErrorDistributionChart(stats)}
                 </div>
                 
+                <!-- Processing time and categories -->
                 <div class="chart-container">
+                    <h3>Processing Time ${mode === 'file' ? '' : 'Distribution'}</h3>
+                    ${this.renderProcessingTimeChart(stats)}
+                </div>
+                
+                <div class="chart-container">
+                    <h3>Mod ${mode === 'file' ? 'Category' : 'Categories'}</h3>
+                    ${this.renderCategoriesChart(stats, mode)}
+                </div>
+                
+                <!-- Error types full width -->
+                <div class="chart-container full-width">
                     <h3>Error Types</h3>
                     ${this.renderErrorTypesChart(stats)}
                 </div>
                 
-                <div class="chart-container">
-                    <h3>Most Common Error Messages</h3>
-                    ${this.renderErrorMessagesChart(stats)}
+                <!-- Expandable error details -->
+                ${stats.stderrErrors > 0 ? `
+                <div class="chart-container full-width">
+                    <details id="stderr-errors-details">
+                        <summary>Most Common Stderr Errors (${stats.stderrErrors})</summary>
+                        ${this.renderErrorMessagesChart(stats.stderrMessages)}
+                    </details>
                 </div>
+                ` : ''}
+                
+                ${stats.validationErrors > 0 ? `
+                <div class="chart-container full-width">
+                    <details id="validation-errors-details">
+                        <summary>Most Common Validation Errors (${stats.validationErrors})</summary>
+                        ${this.renderErrorMessagesChart(stats.validationMessages)}
+                    </details>
+                </div>
+                ` : ''}
+                
+                ${stats.analyzerErrors > 0 ? `
+                <div class="chart-container full-width">
+                    <details id="analyzer-errors-details">
+                        <summary>Most Common Analyzer Errors (${stats.analyzerErrors})</summary>
+                        ${this.renderErrorMessagesChart(stats.analyzerMessages)}
+                    </details>
+                </div>
+                ` : ''}
                 
                 ${mode === 'session' ? `
-                <div class="chart-container">
+                <div class="chart-container full-width">
                     <h3>Errors by File</h3>
                     ${this.renderErrorsByFileChart(stats)}
                 </div>
                 ` : ''}
-                
-                <div class="chart-container">
-                    <h3>Mod ${mode === 'file' ? 'Category' : 'Categories'}</h3>
-                    ${this.renderCategoriesChart(stats)}
-                </div>
             </div>
             
             ${mode === 'session' && stats.failedMods && stats.failedMods.length > 0 ? `
@@ -401,13 +251,13 @@ export default class StatisticsTab extends BaseTab {
         if (mode === 'file') {
             // Determine status for file view
             let statusText = 'Success';
-            let statusColor = 'var(--success-color)';
+            let statusColor = STATUS_COLORS.success;
             if (stats.failed === 1) {
                 statusText = 'Failed';
-                statusColor = 'var(--error-color)';
+                statusColor = STATUS_COLORS.error;
             } else if (stats.validationFailed === 1) {
                 statusText = 'Validation Failed';
-                statusColor = 'var(--warning-color)';
+                statusColor = STATUS_COLORS.warning;
             }
             
             return `
@@ -509,61 +359,44 @@ export default class StatisticsTab extends BaseTab {
     }
     
     renderSuccessRateChart(stats) {
-        const successPercent = stats.successRate;
-        const validationFailedPercent = stats.validationFailed ? (stats.validationFailed / stats.total * 100) : 0;
-        const failPercent = 100 - successPercent - validationFailedPercent;
-        
-        // Three-tier pie chart using SVG paths
-        const radius = 80;
-        const center = 100;
-        
-        // Calculate arc paths
-        const successAngle = (stats.successful / stats.total) * 360;
-        const validationFailedAngle = (stats.validationFailed / stats.total) * 360;
-        const failedAngle = (stats.failed / stats.total) * 360;
-        
-        const createArc = (startAngle, endAngle, color) => {
-            const start = (startAngle - 90) * Math.PI / 180;
-            const end = (endAngle - 90) * Math.PI / 180;
-            const x1 = center + radius * Math.cos(start);
-            const y1 = center + radius * Math.sin(start);
-            const x2 = center + radius * Math.cos(end);
-            const y2 = center + radius * Math.sin(end);
-            const largeArc = endAngle - startAngle > 180 ? 1 : 0;
-            
-            return `<path d="M ${center} ${center} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z" fill="${color}" />`;
-        };
-        
-        let currentAngle = 0;
-        let chartPaths = '';
+        // Prepare segments for pie chart
+        const segments = [];
         
         if (stats.successful > 0) {
-            chartPaths += createArc(currentAngle, currentAngle + successAngle, 'var(--success-color)');
-            currentAngle += successAngle;
+            segments.push({
+                label: 'Success',
+                value: stats.successful,
+                color: STATUS_COLORS.success
+            });
         }
         
         if (stats.validationFailed > 0) {
-            chartPaths += createArc(currentAngle, currentAngle + validationFailedAngle, 'var(--warning-color)');
-            currentAngle += validationFailedAngle;
+            segments.push({
+                label: 'Validation Failed',
+                value: stats.validationFailed,
+                color: STATUS_COLORS.warning
+            });
         }
         
         if (stats.failed > 0) {
-            chartPaths += createArc(currentAngle, currentAngle + failedAngle, 'var(--error-color)');
+            segments.push({
+                label: 'Failed',
+                value: stats.failed,
+                color: STATUS_COLORS.error
+            });
         }
         
+        const { svg, legend } = createPieChart(segments, {
+            radius: PIE_CHART_RADIUS,
+            center: PIE_CHART_CENTER
+        });
+        
         return `
+            <div class="chart-subtitle">Parse Success: ${stats.successRate}% | Validation Success: ${stats.validationSuccessRate}%</div>
             <div class="pie-chart">
-                <svg viewBox="0 0 200 200" style="max-width: 300px; margin: 0 auto;">
-                    ${chartPaths}
-                </svg>
+                ${svg}
                 <div class="chart-legend">
-                    <div><span style="color: var(--success-color)">●</span> Success: ${stats.successful}</div>
-                    <div><span style="color: var(--warning-color)">●</span> Validation Failed: ${stats.validationFailed || 0}</div>
-                    <div><span style="color: var(--error-color)">●</span> Failed: ${stats.failed}</div>
-                </div>
-                <div class="chart-stats">
-                    <div><strong>Parse Success Rate:</strong> ${stats.successRate}%</div>
-                    <div><strong>Validation Success Rate:</strong> ${stats.validationSuccessRate}%</div>
+                    ${legend}
                 </div>
             </div>
         `;
@@ -599,58 +432,51 @@ export default class StatisticsTab extends BaseTab {
             return '<div class="empty-state">No errors recorded</div>';
         }
         
-        // Create pie chart with 4 categories
-        const radius = 80;
-        const center = 100;
-        
-        const validationAngle = (validationErrors / totalErrors) * 360;
-        const analyzerAngle = (analyzerErrors / totalErrors) * 360;
-        const stderrAngle = (stderrErrors / totalErrors) * 360;
-        const otherAngle = (otherErrors / totalErrors) * 360;
-        
-        const createArc = (startAngle, endAngle, color) => {
-            if (endAngle - startAngle === 0) return '';
-            const start = (startAngle - 90) * Math.PI / 180;
-            const end = (endAngle - 90) * Math.PI / 180;
-            const x1 = center + radius * Math.cos(start);
-            const y1 = center + radius * Math.sin(start);
-            const x2 = center + radius * Math.cos(end);
-            const y2 = center + radius * Math.sin(end);
-            const largeArc = endAngle - startAngle > 180 ? 1 : 0;
-            
-            return `<path d="M ${center} ${center} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z" fill="${color}" />`;
-        };
-        
-        let currentAngle = 0;
-        let chartPaths = '';
+        // Prepare segments for pie chart
+        const segments = [];
         
         if (validationErrors > 0) {
-            chartPaths += createArc(currentAngle, currentAngle + validationAngle, 'var(--warning-color)');
-            currentAngle += validationAngle;
+            segments.push({
+                label: 'Validation',
+                value: validationErrors,
+                color: ERROR_COLORS.validation
+            });
         }
+        
         if (analyzerErrors > 0) {
-            chartPaths += createArc(currentAngle, currentAngle + analyzerAngle, 'var(--error-color)');
-            currentAngle += analyzerAngle;
+            segments.push({
+                label: 'Analyzer',
+                value: analyzerErrors,
+                color: ERROR_COLORS.analyzer
+            });
         }
+        
         if (stderrErrors > 0) {
-            chartPaths += createArc(currentAngle, currentAngle + stderrAngle, '#dc143c');
-            currentAngle += stderrAngle;
+            segments.push({
+                label: 'Stderr',
+                value: stderrErrors,
+                color: ERROR_COLORS.stderr
+            });
         }
+        
         if (otherErrors > 0) {
-            chartPaths += createArc(currentAngle, currentAngle + otherAngle, '#888');
-            currentAngle += otherAngle;
+            segments.push({
+                label: 'Other',
+                value: otherErrors,
+                color: ERROR_COLORS.other
+            });
         }
+        
+        const { svg, legend } = createPieChart(segments, {
+            radius: PIE_CHART_RADIUS,
+            center: PIE_CHART_CENTER
+        });
         
         return `
             <div class="pie-chart">
-                <svg viewBox="0 0 200 200" style="max-width: 300px; margin: 0 auto;">
-                    ${chartPaths}
-                </svg>
+                ${svg}
                 <div class="chart-legend">
-                    <div><span style="color: var(--warning-color)">●</span> Validation: ${validationErrors} (${((validationErrors / totalErrors) * 100).toFixed(1)}%)</div>
-                    <div><span style="color: var(--error-color)">●</span> Analyzer: ${analyzerErrors} (${((analyzerErrors / totalErrors) * 100).toFixed(1)}%)</div>
-                    <div><span style="color: #dc143c">●</span> Stderr: ${stderrErrors} (${((stderrErrors / totalErrors) * 100).toFixed(1)}%)</div>
-                    <div><span style="color: #888">●</span> Other: ${otherErrors} (${((otherErrors / totalErrors) * 100).toFixed(1)}%)</div>
+                    ${legend}
                 </div>
             </div>
         `;
@@ -665,55 +491,36 @@ export default class StatisticsTab extends BaseTab {
             .sort((a, b) => b[1] - a[1])
             .slice(0, 10);
         
-        const max = sorted[0][1];
+        const items = sorted.map(([type, count]) => ({
+            label: type,
+            value: count
+        }));
         
-        return `
-            <div class="bar-chart">
-                ${sorted.map(([type, count]) => {
-                    const percent = (count / max * 100);
-                    return `
-                        <div class="bar-item">
-                            <div class="bar-label">${type}</div>
-                            <div class="bar-visual">
-                                <div class="bar-fill" style="width: ${percent}%; background: var(--error-color)"></div>
-                                <span class="bar-count">${count}</span>
-                            </div>
-                        </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
+        return createBarChart(items, {
+            barColor: 'var(--error-color)',
+            limit: 10
+        });
     }
     
-    renderErrorMessagesChart(stats) {
-        if (!stats.errorMessages || Object.keys(stats.errorMessages).length === 0) {
+    renderErrorMessagesChart(errorMessages) {
+        if (!errorMessages || Object.keys(errorMessages).length === 0) {
             return '<div class="empty-state">No error messages recorded</div>';
         }
         
-        const sorted = Object.entries(stats.errorMessages)
+        const sorted = Object.entries(errorMessages)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 20); // Show top 20 most common errors
         
-        const max = sorted[0][1];
+        const items = sorted.map(([message, count]) => ({
+            label: message,
+            value: count
+        }));
         
-        return `
-            <div class="bar-chart">
-                ${sorted.map(([message, count]) => {
-                    const percent = (count / max * 100);
-                    // Truncate long error messages for display
-                    const shortMessage = message.length > 80 ? message.slice(0, 77) + '...' : message;
-                    return `
-                        <div class="bar-item">
-                            <div class="bar-label" title="${this.escapeHtml(message)}">${this.escapeHtml(shortMessage)}</div>
-                            <div class="bar-visual">
-                                <div class="bar-fill" style="width: ${percent}%; background: var(--warning-color)"></div>
-                                <span class="bar-count">${count}</span>
-                            </div>
-                        </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
+        return createBarChart(items, {
+            barColor: 'var(--warning-color)',
+            maxLabelLength: 80,
+            limit: 20
+        });
     }
     
     renderErrorsByFileChart(stats) {
@@ -725,141 +532,77 @@ export default class StatisticsTab extends BaseTab {
             .sort((a, b) => b[1] - a[1])
             .slice(0, 10);
         
-        const max = sorted[0][1];
+        const items = sorted.map(([file, count]) => ({
+            label: file,
+            value: count
+        }));
         
-        return `
-            <div class="bar-chart">
-                ${sorted.map(([file, count]) => {
-                    const percent = (count / max * 100);
-                    const shortName = file.length > 30 ? file.slice(0, 27) + '...' : file;
-                    return `
-                        <div class="bar-item">
-                            <div class="bar-label" title="${file}">${shortName}</div>
-                            <div class="bar-visual">
-                                <div class="bar-fill" style="width: ${percent}%; background: var(--warning-color)"></div>
-                                <span class="bar-count">${count}</span>
-                            </div>
-                        </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
+        return createBarChart(items, {
+            barColor: 'var(--warning-color)',
+            maxLabelLength: 30,
+            limit: 10
+        });
     }
     
-    renderCategoriesChart(stats) {
+    renderCategoriesChart(stats, mode) {
         if (Object.keys(stats.categories).length === 0) {
             return '<div class="empty-state">No category data</div>';
         }
         
+        // For file view (single category), show simple text
+        if (mode === 'file') {
+            const category = Object.keys(stats.categories)[0];
+            return `
+                <div class="stats-list">
+                    <div class="stat-row">
+                        <span>${category}</span>
+                        <strong>1 mod</strong>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // For session view (multiple categories), show pie chart
         const sorted = Object.entries(stats.categories)
             .sort((a, b) => b[1] - a[1]);
         
+        // Prepare segments for pie chart
+        const segments = sorted.map(([category, count], index) => {
+            const color = CATEGORY_COLORS[category.toLowerCase()] || CHART_COLORS[index % CHART_COLORS.length];
+            return {
+                label: category,
+                value: count,
+                color
+            };
+        });
+        
+        const { svg, legend } = createPieChart(segments, {
+            radius: PIE_CHART_RADIUS,
+            center: PIE_CHART_CENTER
+        });
+        
         return `
-            <div class="stats-list">
-                ${sorted.map(([category, count]) => `
-                    <div class="stat-row">
-                        <span>${category}</span>
-                        <strong>${count}</strong>
-                    </div>
-                `).join('')}
+            <div class="pie-chart">
+                ${svg}
+                <div class="chart-legend">
+                    ${legend}
+                </div>
             </div>
         `;
     }
     
     exportCSV(mode) {
         const mods = mode === 'file' && this.currentMod ? [this.currentMod] : this.sessionMods;
-        const headers = ['Filename', 'Status', 'Validation Status', 'Category', 'Validation Errors', 'Analyzer Errors', 'Stderr Errors', 'Other Errors', 'Warnings', 'Processing Time (ms)', 'Size (bytes)', 'Validation Error Details', 'Timestamp'];
-        const rows = mods.map(mod => {
-            const validationStatus = mod.status === 'validation-failed' ? 'Validation Failed' : 
-                                    mod.status === 'failed' ? 'Failed' : 'Success';
-            const validationErrors = mod.validationErrors?.length || 0;
-            const analyzerErrors = ((mod.result && mod.result.success === false && mod.result.error) ? 1 : 0) + 
-                                  ((mod.parsed && mod.parsed.category === 'err') ? 1 : 0);
-            const stderrErrors = mod.errors?.filter(e => e.type === 'error').length || 0;
-            const validationDetails = mod.validationErrors?.map(e => `${e.field}: ${e.message}`).join('; ') || '';
-            
-            return [
-                mod.fileName,
-                mod.status,
-                validationStatus,
-                mod.parsed?.category || '',
-                validationErrors,
-                analyzerErrors,
-                stderrErrors,
-                0, // other errors placeholder
-                mod.errors?.filter(e => e.type === 'warning').length || 0,
-                mod.processingTime || 0,
-                mod.fileSize || 0,
-                validationDetails,
-                mod.timestamp || ''
-            ];
-        });
-        
-        const csv = [headers, ...rows]
-            .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-            .join('\n');
-        
+        const stats = calculateStatistics(mods);
+        const csv = exportToCSV(stats, mods, mode);
         const filename = mode === 'file' ? `${this.currentMod.fileName}-statistics.csv` : 'session-statistics.csv';
         this.downloadFile(filename, csv, 'text/csv');
     }
     
     exportXML(mode) {
         const mods = mode === 'file' && this.currentMod ? [this.currentMod] : this.sessionMods;
-        const stats = this.calculateStats(mods);
-        
-        const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<modStatistics>
-    <summary>
-        <total>${stats.total}</total>
-        <successful>${stats.successful}</successful>
-        <validationFailed>${stats.validationFailed || 0}</validationFailed>
-        <failed>${stats.failed}</failed>
-        <successRate>${stats.successRate}</successRate>
-        <validationSuccessRate>${stats.validationSuccessRate}</validationSuccessRate>
-        <avgProcessingTime>${stats.avgTime}</avgProcessingTime>
-        <totalErrors>${stats.totalErrors}</totalErrors>
-        <validationErrors>${stats.validationErrors}</validationErrors>
-        <analyzerErrors>${stats.analyzerErrors}</analyzerErrors>
-        <stderrErrors>${stats.stderrErrors}</stderrErrors>
-        <otherErrors>${stats.otherErrors}</otherErrors>
-    </summary>
-    <mods>
-        ${mods.map(mod => {
-            const validationStatus = mod.status === 'validation-failed' ? 'Validation Failed' : 
-                                    mod.status === 'failed' ? 'Failed' : 'Success';
-            const validationErrorCount = mod.validationErrors?.length || 0;
-            const stderrErrorCount = mod.errors?.filter(e => e.type === 'error').length || 0;
-            const analyzerErrors = ((mod.result && mod.result.success === false && mod.result.error) ? 1 : 0) + 
-                                  ((mod.parsed && mod.parsed.category === 'err') ? 1 : 0);
-            
-            return `
-        <mod>
-            <filename>${this.escapeXml(mod.fileName)}</filename>
-            <status>${this.escapeXml(mod.status)}</status>
-            <validationStatus>${this.escapeXml(validationStatus)}</validationStatus>
-            <category>${this.escapeXml(mod.parsed?.category || '')}</category>
-            <processingTime>${mod.processingTime || 0}</processingTime>
-            <size>${mod.fileSize || 0}</size>
-            <validationErrors count="${validationErrorCount}">
-                ${(mod.validationErrors || []).map(e => `
-                <error field="${this.escapeXml(e.field)}">${this.escapeXml(e.message)}</error>
-                `).join('')}
-            </validationErrors>
-            <analyzerErrors count="${analyzerErrors}">
-                ${(mod.result && mod.result.error) ? `<error>${this.escapeXml(mod.result.error)}</error>` : ''}
-                ${(mod.parsed && mod.parsed.category === 'err') ? '<error>Mod category is "err"</error>' : ''}
-            </analyzerErrors>
-            <stderrErrors count="${stderrErrorCount}">
-                ${(mod.errors || []).map(e => `
-                <error type="${this.escapeXml(e.type)}">${this.escapeXml(e.message)}</error>
-                `).join('')}
-            </stderrErrors>
-        </mod>
-            `;
-        }).join('')}
-    </mods>
-</modStatistics>`;
-        
+        const stats = calculateStatistics(mods);
+        const xml = exportToXML(stats, mods, mode);
         const filename = mode === 'file' ? `${this.currentMod.fileName}-statistics.xml` : 'session-statistics.xml';
         this.downloadFile(filename, xml, 'application/xml');
     }
