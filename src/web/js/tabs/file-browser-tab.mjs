@@ -4,6 +4,8 @@ import * as parser from '../parser.mjs';
 import BaseTab from './base-tab.mjs';
 import { FilePreviewMixin } from './file-preview-mixin.mjs';
 import { ErrorManager } from './error-manager.mjs';
+import { escapeHtml } from '../utils/html-utils.mjs';
+import { toggleClass } from '../utils/dom-helpers.mjs';
 
 export default class FileBrowserTab extends BaseTab {
     constructor() {
@@ -52,14 +54,6 @@ export default class FileBrowserTab extends BaseTab {
         const headerEl = this.querySelector('#preview-filename');
         if (headerEl) headerEl.textContent = 'Select a file';
         this.setHTML('#file-preview', '');
-        
-        // Auto-select entry.lua if it exists in the root
-        if (this.zipArchive && this.zipArchive.files['entry.lua']) {
-            // Wait for render to complete, then select
-            setTimeout(() => {
-                this.selectFile('entry.lua');
-            }, 100);
-        }
     }
     
     setCurrentMod(mod) {
@@ -78,6 +72,14 @@ export default class FileBrowserTab extends BaseTab {
         const headerEl = this.querySelector('#preview-filename');
         if (headerEl) headerEl.textContent = 'Select a file';
         this.setHTML('#file-preview', '');
+    }
+    
+    onShow() {
+        // Called when tab becomes visible - render immediately
+        if (this.needsRender) {
+            this.render();
+            this.needsRender = false;
+        }
     }
     
     render() {
@@ -117,6 +119,14 @@ export default class FileBrowserTab extends BaseTab {
                 }
             }
         });
+        
+        // Auto-select entry.lua if no file is currently selected
+        if (!this.selectedFile && this.zipArchive && this.zipArchive.files['entry.lua']) {
+            // Use setTimeout to ensure DOM is ready
+            setTimeout(() => {
+                this.selectFile('entry.lua');
+            }, 0);
+        }
     }
     
     buildFileTree() {
@@ -256,7 +266,7 @@ export default class FileBrowserTab extends BaseTab {
             const errorItems = errors.map(e => 
                 `<div class="error-item">
                     <span class="error-location">[${e.line}:${e.column}]</span>
-                    <span class="error-message">${this.escapeHtml(e.message)}</span>
+                    <span class="error-message">${escapeHtml(e.message)}</span>
                 </div>`
             ).join('');
             

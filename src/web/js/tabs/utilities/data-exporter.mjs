@@ -1,19 +1,6 @@
 // Data Export Utilities - CSV and XML formatting for statistics
 
-/**
- * Escapes HTML/XML special characters
- * @param {string} text - Text to escape
- * @returns {string} Escaped text
- */
-function escapeXml(text) {
-    if (text === null || text === undefined) return '';
-    return String(text)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
-}
+import { escapeXml } from '../../utils/html-utils.mjs';
 
 /**
  * Escapes CSV cell content (handles quotes and commas)

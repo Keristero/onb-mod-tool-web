@@ -161,6 +161,11 @@ export class ValidationRegistry {
 export function createDefaultRegistry() {
     const registry = new ValidationRegistry();
     
+    // Helper to check if value is a web default
+    const isWebDefault = (value) => {
+        return String(value).includes('[web-default:');
+    };
+    
     // Invalid field values
     const INVALID_VALUES = ['none', 'null', '', 'unknown', 'unnamed', 'unnamed mod'];
     const INVALID_VERSION_VALUES = ['none', 'null', '', '0.0.0'];
@@ -173,9 +178,11 @@ export function createDefaultRegistry() {
         severity: 'error',
         check: (mod) => {
             const name = mod.parsed?.name;
-            if (!name || INVALID_VALUES.includes(String(name).trim().toLowerCase())) {
+            if (!name || INVALID_VALUES.includes(String(name).trim().toLowerCase()) || isWebDefault(name)) {
                 return { 
-                    message: 'Mod name is missing or set to an invalid value',
+                    message: isWebDefault(name) 
+                        ? 'Mod name was not provided by WASM (web tool default used)'
+                        : 'Mod name is missing or set to an invalid value',
                     value: name 
                 };
             }
@@ -191,9 +198,11 @@ export function createDefaultRegistry() {
         severity: 'error',
         check: (mod) => {
             const id = mod.parsed?.id;
-            if (!id || INVALID_VALUES.includes(String(id).trim().toLowerCase())) {
+            if (!id || INVALID_VALUES.includes(String(id).trim().toLowerCase()) || isWebDefault(id)) {
                 return { 
-                    message: 'Mod ID is missing or set to an invalid value',
+                    message: isWebDefault(id)
+                        ? 'Mod ID was not provided by WASM (web tool default used)'
+                        : 'Mod ID is missing or set to an invalid value',
                     value: id 
                 };
             }
@@ -209,9 +218,11 @@ export function createDefaultRegistry() {
         severity: 'error',
         check: (mod) => {
             const uuid = mod.parsed?.uuid;
-            if (!uuid || INVALID_VALUES.includes(String(uuid).trim().toLowerCase())) {
+            if (!uuid || INVALID_VALUES.includes(String(uuid).trim().toLowerCase()) || isWebDefault(uuid)) {
                 return { 
-                    message: 'Mod UUID is missing or set to an invalid value',
+                    message: isWebDefault(uuid)
+                        ? 'Mod UUID was not provided by WASM (web tool default used)'
+                        : 'Mod UUID is missing or set to an invalid value',
                     value: uuid 
                 };
             }
@@ -227,9 +238,11 @@ export function createDefaultRegistry() {
         severity: 'error',
         check: (mod) => {
             const game = mod.parsed?.game;
-            if (!game || INVALID_VALUES.includes(String(game).trim().toLowerCase())) {
+            if (!game || INVALID_VALUES.includes(String(game).trim().toLowerCase()) || isWebDefault(game)) {
                 return { 
-                    message: 'Mod game is missing or set to an invalid value',
+                    message: isWebDefault(game)
+                        ? 'Mod game was not provided by WASM (web tool default used)'
+                        : 'Mod game is missing or set to an invalid value',
                     value: game 
                 };
             }
@@ -245,9 +258,11 @@ export function createDefaultRegistry() {
         severity: 'error',
         check: (mod) => {
             const version = mod.parsed?.version;
-            if (!version || INVALID_VERSION_VALUES.includes(String(version).trim().toLowerCase())) {
+            if (!version || INVALID_VERSION_VALUES.includes(String(version).trim().toLowerCase()) || isWebDefault(version)) {
                 return { 
-                    message: 'Mod version is missing or set to an invalid value',
+                    message: isWebDefault(version)
+                        ? 'Mod version was not provided by WASM (web tool default used)'
+                        : 'Mod version is missing or set to an invalid value',
                     value: version 
                 };
             }
@@ -263,9 +278,11 @@ export function createDefaultRegistry() {
         severity: 'error',
         check: (mod) => {
             const category = mod.parsed?.category;
-            if (!category || INVALID_VALUES.includes(String(category).trim().toLowerCase()) || category === 'err') {
+            if (!category || INVALID_VALUES.includes(String(category).trim().toLowerCase()) || category === 'err' || isWebDefault(category)) {
                 return { 
-                    message: 'Mod category is missing or set to an invalid value',
+                    message: isWebDefault(category)
+                        ? 'Mod category was not provided by WASM (web tool default used)'
+                        : 'Mod category is missing or set to an invalid value',
                     value: category 
                 };
             }

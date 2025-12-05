@@ -7,6 +7,8 @@ import ResultsTab from './tabs/results-tab.mjs';
 import FileBrowserTab from './tabs/file-browser-tab.mjs';
 import StatisticsTab from './tabs/statistics-tab.mjs';
 import DependenciesTab from './tabs/dependencies-tab.mjs';
+import { addClass, removeClass, toggleClass } from './utils/dom-helpers.mjs';
+import { createElement } from './utils/html-utils.mjs';
 
 class ModAnalyzer {
     constructor() {
@@ -85,16 +87,16 @@ class ModAnalyzer {
         // Drag and drop
         this.elements.dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
-            this.elements.dropZone.classList.add('drag-over');
+            addClass(this.elements.dropZone, 'drag-over');
         });
         
         this.elements.dropZone.addEventListener('dragleave', () => {
-            this.elements.dropZone.classList.remove('drag-over');
+            removeClass(this.elements.dropZone, 'drag-over');
         });
         
         this.elements.dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
-            this.elements.dropZone.classList.remove('drag-over');
+            removeClass(this.elements.dropZone, 'drag-over');
             this.handleFiles(e.dataTransfer.files);
         });
         
@@ -456,20 +458,18 @@ class ModAnalyzer {
             this._renderModListImmediate();
         }, 16); // ~60fps
     }
-    
     _renderModListImmediate() {
         const filtered = this.getFilteredMods();
         
         // Use DocumentFragment for better performance
         const fragment = document.createDocumentFragment();
-        const tempDiv = document.createElement('div');
         
         // Batch create elements
         filtered.forEach(mod => {
             const actualIndex = this.processedMods.indexOf(mod);
             const statusClass = mod.status;
             const activeClass = actualIndex === this.currentModIndex ? 'active' : '';
-            const category = mod.parsed?.category || 'unknown';
+            const category = mod.parsed?.category || '[web-default: unknown]';
             const categoryClass = `mod-category-${category.toLowerCase()}`;
             
             const statusText = {
@@ -479,13 +479,14 @@ class ModAnalyzer {
                 'failed': 'Fail'
             }[mod.status] || mod.status;
             
-            const el = document.createElement('div');
-            el.className = `mod-item ${statusClass} ${activeClass} ${categoryClass}`;
-            el.dataset.index = actualIndex;
-            el.innerHTML = `
-                <div class="mod-item-name" title="${mod.fileName}">${mod.fileName}</div>
-                <div class="mod-item-status">${statusText}</div>
-            `;
+            const el = createElement('div', {
+                className: `mod-item ${statusClass} ${activeClass} ${categoryClass}`,
+                dataset: { index: actualIndex },
+                innerHTML: `
+                    <div class="mod-item-name" title="${mod.fileName}">${mod.fileName}</div>
+                    <div class="mod-item-status">${statusText}</div>
+                `
+            });
             
             // Add click handler directly
             el.addEventListener('click', () => this.selectMod(actualIndex));
@@ -549,13 +550,13 @@ class ModAnalyzer {
     switchTab(tabName) {
         // Update buttons
         this.elements.tabButtons.forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.tab === tabName);
+            toggleClass(btn, 'active', btn.dataset.tab === tabName);
         });
         
         // Update content
         this.elements.tabContents.forEach(content => {
             const isActive = content.id === `tab-${tabName}`;
-            content.classList.toggle('active', isActive);
+            toggleClass(content, 'active', isActive);
         });
         
         // Only render the tab if we have a current mod and it needs rendering
@@ -579,14 +580,14 @@ class ModAnalyzer {
         if (parentContainer) {
             const subTabButtons = parentContainer.querySelectorAll('.sub-tab');
             subTabButtons.forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.subTab === subTabName);
+                toggleClass(btn, 'active', btn.dataset.subTab === subTabName);
             });
             
             // Update sub-tab content
             const subTabContents = parentContainer.querySelectorAll('.sub-tab-content');
             subTabContents.forEach(content => {
                 const isActive = content.id === `sub-tab-${subTabName}`;
-                content.classList.toggle('active', isActive);
+                toggleClass(content, 'active', isActive);
             });
         }
         

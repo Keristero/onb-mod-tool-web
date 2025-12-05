@@ -4,6 +4,8 @@ import * as parser from '../parser.mjs';
 import BaseTab from './base-tab.mjs';
 import { FilePreviewMixin } from './file-preview-mixin.mjs';
 import { ErrorManager, findBestPathMatch } from './error-manager.mjs';
+import { addClass } from '../utils/dom-helpers.mjs';
+import { escapeHtml } from '../utils/html-utils.mjs';
 
 export default class ResultsTab extends BaseTab {
     constructor() {
@@ -386,7 +388,7 @@ export default class ResultsTab extends BaseTab {
                 const error = errorLineIndices.get(i);
                 line = line.replace(
                     /^\[\s*(\d+)\s*:\s*(\d+)\s*\]/,
-                    `<span class="console-location-bracket" data-file="${this.escapeHtml(error.file)}" data-line="${error.line}" data-column="${error.column}">[${error.line}:${error.column}]</span>`
+                    `<span class="console-location-bracket" data-file="${escapeHtml(error.file)}" data-line="${error.line}" data-column="${error.column}">[${error.line}:${error.column}]</span>`
                 );
             }
             
@@ -459,7 +461,7 @@ export default class ResultsTab extends BaseTab {
             const matchingFile = findBestPathMatch(text, zipFiles);
             
             if (matchingFile) {
-                el.classList.add('json-file-path');
+                addClass(el, 'json-file-path');
                 el.dataset.file = matchingFile;
                 el.style.cursor = 'pointer';
                 el.title = 'Click to open in file browser, hover to preview';
@@ -474,7 +476,7 @@ export default class ResultsTab extends BaseTab {
         });
     }
     
-    openInFileBrowser(filePath) {
+    jumpToFileAndScroll(filePath) {
         // Switch to file browser tab
         const fileBrowserTab = document.querySelector('.tab[data-tab="files"]');
         if (fileBrowserTab) {
@@ -513,7 +515,7 @@ export default class ResultsTab extends BaseTab {
             const matchingFile = this.findMatchingZipFile(fileName, zipFiles);
             
             if (matchingFile) {
-                el.classList.add('console-file-exists');
+                addClass(el, 'console-file-exists');
                 el.style.cursor = 'pointer';
                 el.title = 'Click to open in file browser, hover to preview with errors';
                 
@@ -607,11 +609,4 @@ export default class ResultsTab extends BaseTab {
             this.setHTML('.results-content', '<div class="empty-state">No results</div>');
         }
     }
-}
-
-// Utility function for global use
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 }

@@ -1,5 +1,8 @@
 // FilePreviewMixin - Shared file preview and tooltip functionality
 
+import { escapeHtml, createElement } from '../utils/html-utils.mjs';
+import { removeClass } from '../utils/dom-helpers.mjs';
+
 export const FilePreviewMixin = {
     // State for preview tooltips
     previewTooltip: null,
@@ -45,9 +48,9 @@ export const FilePreviewMixin = {
         
         return `
             <div class="file-preview-tooltip">
-                <div class="tooltip-header">${this.escapeHtml(fileName)}</div>
+                <div class="tooltip-header">${escapeHtml(fileName)}</div>
                 <div class="image-preview-container">
-                    <img src="${url}" alt="${this.escapeHtml(fileName)}" style="max-width: 600px; max-height: 400px; height: auto;" />
+                    <img src="${url}" alt="${escapeHtml(fileName)}" style="max-width: 600px; max-height: 400px; height: auto;" />
                 </div>
             </div>
         `;
@@ -63,7 +66,7 @@ export const FilePreviewMixin = {
         
         return `
             <div class="file-preview-tooltip">
-                <div class="tooltip-header">${this.escapeHtml(fileName)}</div>
+                <div class="tooltip-header">${escapeHtml(fileName)}</div>
                 <div class="audio-preview-container">
                     <audio controls autoplay style="width: 100%;">
                         <source src="${url}" type="audio/${ext}">
@@ -82,9 +85,9 @@ export const FilePreviewMixin = {
         const size = file._data ? file._data.uncompressedSize : 0;
         return `
             <div class="file-preview-tooltip">
-                <div class="tooltip-header">${this.escapeHtml(fileName)}</div>
+                <div class="tooltip-header">${escapeHtml(fileName)}</div>
                 <div class="binary-preview-container">
-                    <p>Binary file (${this.formatBytes(size)})</p>
+                    <p>Binary file (${size} bytes)</p>
                     <p>Click to open in file browser</p>
                 </div>
             </div>
@@ -166,7 +169,7 @@ export const FilePreviewMixin = {
         
         return `
             <div class="file-preview-tooltip">
-                <div class="tooltip-header">${this.escapeHtml(fileName)}</div>
+                <div class="tooltip-header">${escapeHtml(fileName)}</div>
                 <div class="code-preview">
                     <div class="line-numbers">${lineNumbersHtml}</div>
                     <div class="code-content">${linesHtml}</div>
@@ -205,7 +208,7 @@ export const FilePreviewMixin = {
         
         return `
             <div class="file-preview-tooltip">
-                <div class="tooltip-header">${this.escapeHtml(fileName)}</div>
+                <div class="tooltip-header">${escapeHtml(fileName)}</div>
                 ${errorSummary}
                 <div class="code-preview">
                     <div class="line-numbers">${lineNumbersHtml}</div>
@@ -294,9 +297,10 @@ export const FilePreviewMixin = {
     showTooltip(element, content) {
         this.hidePreview();
         
-        const tooltip = document.createElement('div');
-        tooltip.className = 'hover-preview-tooltip';
-        tooltip.innerHTML = content;
+        const tooltip = createElement('div', {
+            className: 'hover-preview-tooltip',
+            innerHTML: content
+        });
         document.body.appendChild(tooltip);
         
         // Set volume for audio elements
@@ -333,7 +337,7 @@ export const FilePreviewMixin = {
         // Remove highlights
         if (this.container) {
             this.container.querySelectorAll('.highlighted').forEach(el => {
-                el.classList.remove('highlighted');
+                removeClass(el, 'highlighted');
             });
         }
     },

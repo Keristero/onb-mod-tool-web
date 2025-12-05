@@ -1,5 +1,8 @@
 // JSON parsing and formatting utilities
 
+import { escapeHtml } from './utils/html-utils.mjs';
+import { formatBytes as formatBytesUtil, formatDuration as formatDurationUtil } from './utils/format-utils.mjs';
+
 /**
  * Parse UUID to extract game, version, category, and name
  * Format: game@version/category/name
@@ -8,10 +11,10 @@
 export function parseUuid(uuid) {
     if (!uuid || typeof uuid !== 'string') {
         return {
-            game: 'unknown',
-            version: '0.0.0',
-            category: 'unknown',
-            name: 'unknown',
+            game: '[web-default: unknown]',
+            version: '[web-default: 0.0.0]',
+            category: '[web-default: unknown]',
+            name: '[web-default: unknown]',
             path: ''
         };
     }
@@ -21,9 +24,9 @@ export function parseUuid(uuid) {
     if (atSplit.length < 2) {
         // No @ found, treat entire string as name
         return {
-            game: 'unknown',
-            version: '0.0.0',
-            category: 'unknown',
+            game: '[web-default: unknown]',
+            version: '[web-default: 0.0.0]',
+            category: '[web-default: unknown]',
             name: uuid,
             path: ''
         };
@@ -39,16 +42,16 @@ export function parseUuid(uuid) {
         return {
             game,
             version: slashSplit[0],
-            category: 'unknown',
-            name: 'unknown',
+            category: '[web-default: unknown]',
+            name: '[web-default: unknown]',
             path: ''
         };
     }
     
     const version = slashSplit[0];
     const pathParts = slashSplit.slice(1);
-    const category = pathParts[0] || 'unknown';
-    const name = pathParts[pathParts.length - 1] || 'unknown';
+    const category = pathParts[0] || '[web-default: unknown]';
+    const name = pathParts[pathParts.length - 1] || '[web-default: unknown]';
     const path = pathParts.join('/');
     
     return {
@@ -83,15 +86,30 @@ export function parseAnalysisResult(result) {
     }
     
     // Prefer UUID-extracted values, fallback to direct fields
+    // Note: Default values prefixed with [web-default:] are client-side fallbacks, not from WASM
+    // Category determination: Use uuidInfo.category first, then result.data.category
+    // If result.data.category is empty/null/undefined, but not 'err', use web default
+    const wasmCategory = result.data.category;
+    let finalCategory;
+    if (uuidInfo.category && uuidInfo.category !== '[web-default: unknown]') {
+        finalCategory = uuidInfo.category;
+    } else if (wasmCategory) {
+        // Use WASM category as-is (including 'err' which is valid)
+        finalCategory = wasmCategory;
+    } else {
+        // No category from either source
+        finalCategory = '[web-default: unknown]';
+    }
+    
     return {
         valid: true,
-        id: result.data.id || uuidInfo.name || 'unknown',
+        id: result.data.id || uuidInfo.name || '[web-default: unknown]',
         uuid: uuid,
         game: uuidInfo.game,
-        name: result.data.name || uuidInfo.name || 'Unnamed Mod',
+        name: result.data.name || uuidInfo.name || '[web-default: Unnamed Mod]',
         description: result.data.description || '',
-        version: uuidInfo.version || result.data.version || '0.0.0',
-        category: uuidInfo.category || result.data.category || 'unknown',
+        version: uuidInfo.version || result.data.version || '[web-default: 0.0.0]',
+        category: finalCategory,
         path: uuidInfo.path,
         bytes: result.data.bytes || 0,
         data: result.data.data || {},
@@ -187,7 +205,7 @@ export function parseErrorLocation(errorMessage) {
  * Extract dependency information from mod data
  */
 export function extractDependencies(modData) {
-    const packageId = modData.id || 'unknown';
+    const packageId = modData.id || '[web-default: unknown]';
     let dependencies = [];
     
     // Check for library type with dependencies
@@ -209,25 +227,17 @@ export function extractDependencies(modData) {
 /**
  * Format bytes to human readable size
  */
-export function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
+/**
+ * Format bytes to human-readable size
+ * Re-exported from format-utils for backward compatibility
+ */
+export const formatBytes = formatBytesUtil;
 
 /**
  * Format duration in milliseconds to human readable
+ * Re-exported from format-utils for backward compatibility
  */
-export function formatDuration(ms) {
-    if (ms < 1000) {
-        return `${Math.round(ms)}ms`;
-    }
-    return `${(ms / 1000).toFixed(2)}s`;
-}
+export const formatDuration = formatDurationUtil;
 
 /**
  * Create a collapsible JSON tree structure
@@ -275,20 +285,6 @@ export function createJsonTree(obj, key = null, level = 0) {
     }
     
     return lines.join('\n');
-}
-
-/**
- * Escape HTML special characters
- */
-function escapeHtml(text) {
-    const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-    };
-    return text.replace(/[&<>"']/g, m => map[m]);
 }
 
 /**
@@ -356,6 +352,11 @@ export function validateModField(fieldName, value, invalidValues = INVALID_VALUE
     }
     
     const stringValue = String(value).trim();
+    
+    // Check for web default values
+    if (stringValue.includes('[web-default:')) {
+        return { valid: false, message: `${fieldName} was not provided by WASM (web tool default used)` };
+    }
     
     if (invalidValues.includes(stringValue.toLowerCase())) {
         return { valid: false, message: `${fieldName} must be set to a valid value` };

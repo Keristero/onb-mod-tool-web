@@ -1,5 +1,8 @@
 // Chart Rendering Utilities - Reusable SVG and HTML chart generators
 
+import { escapeHtml, createElement } from '../../utils/html-utils.mjs';
+import { addClass, removeClass } from '../../utils/dom-helpers.mjs';
+
 /**
  * Creates an SVG arc path for use in pie charts
  * @param {number} startAngle - Starting angle in degrees (0 = top)
@@ -198,18 +201,12 @@ export function initializeChartTooltips() {
     // Create tooltip element if it doesn't exist
     let tooltip = document.getElementById('chart-tooltip');
     if (!tooltip) {
-        tooltip = document.createElement('div');
-        tooltip.id = 'chart-tooltip';
-        tooltip.className = 'chart-tooltip';
+        tooltip = createElement('div', {
+            attributes: { id: 'chart-tooltip' },
+            className: 'chart-tooltip'
+        });
         document.body.appendChild(tooltip);
     }
-    
-    // Helper to escape HTML
-    const escapeHtml = (text) => {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    };
     
     // Add event listeners to all chart segments
     const segments = document.querySelectorAll('.chart-segment');
@@ -231,7 +228,7 @@ export function initializeChartTooltips() {
                 } else {
                     tooltip.innerHTML = `<div class="chart-tooltip-label">${escapeHtml(tooltipText)}</div>`;
                 }
-                tooltip.classList.add('visible');
+                addClass(tooltip, 'visible');
             }
         });
         
@@ -241,7 +238,7 @@ export function initializeChartTooltips() {
         });
         
         segment.addEventListener('mouseleave', () => {
-            tooltip.classList.remove('visible');
+            removeClass(tooltip, 'visible');
         });
     });
 }

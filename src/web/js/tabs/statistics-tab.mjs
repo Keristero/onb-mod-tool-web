@@ -6,6 +6,7 @@ import { PIE_CHART_RADIUS, PIE_CHART_CENTER, CHART_COLORS, CATEGORY_COLORS, ERRO
 import { calculateStatistics } from './utilities/statistics-calculator.mjs';
 import { createPieChart, createBarChart, initializeChartTooltips } from './utilities/chart-renderer.mjs';
 import { exportToCSV, exportToXML } from './utilities/data-exporter.mjs';
+import { escapeHtml } from '../utils/html-utils.mjs';
 
 export default class StatisticsTab extends BaseTab {
     constructor() {
@@ -154,100 +155,74 @@ export default class StatisticsTab extends BaseTab {
         }
     }
     
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-    
     renderStats(stats, mode) {
+        // Helper to create a chart container
+        const chart = (title, content, fullWidth = false) => `
+            <div class="chart-container${fullWidth ? ' full-width' : ''}">
+                <h3>${title}</h3>
+                ${content}
+            </div>
+        `;
+        
+        // Helper to create expandable error details
+        const errorDetails = (id, title, count, messages) => 
+            count > 0 ? `
+                <div class="chart-container full-width">
+                    <details id="${id}">
+                        <summary>${title} (${count})</summary>
+                        ${this.renderErrorMessagesChart(messages)}
+                    </details>
+                </div>
+            ` : '';
+        
+        // Helper to render failed mods section
+        const failedModsSection = () => 
+            mode === 'session' && stats.failedMods?.length > 0 ? `
+                <div class="stats-section">
+                    <h3>Failed to Parse (${stats.failedMods.length})</h3>
+                    <div class="failed-mods-list">
+                        ${stats.failedMods.map(mod => `
+                            <div class="failed-mod-item">
+                                <div class="failed-mod-name">${escapeHtml(mod.fileName)}</div>
+                                <div class="failed-mod-error">${escapeHtml(mod.error || 'Unknown error')}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : '';
+        
         return `
             <div class="stats-overview">
                 ${this.renderOverviewCards(stats, mode)}
             </div>
             
             <div class="stats-charts">
-                <!-- Pie charts side by side -->
-                <div class="chart-container">
-                    <h3>Success Rate</h3>
-                    ${this.renderSuccessRateChart(stats)}
-                </div>
-                
-                <div class="chart-container">
-                    <h3>Error Distribution</h3>
-                    ${this.renderErrorDistributionChart(stats)}
-                </div>
-                
-                <!-- Processing time and categories -->
-                <div class="chart-container">
-                    <h3>Processing Time ${mode === 'file' ? '' : 'Distribution'}</h3>
-                    ${this.renderProcessingTimeChart(stats)}
-                </div>
-                
-                <div class="chart-container">
-                    <h3>Mod ${mode === 'file' ? 'Category' : 'Categories'}</h3>
-                    ${this.renderCategoriesChart(stats, mode)}
-                </div>
-                
-                <!-- Error types full width -->
-                <div class="chart-container full-width">
-                    <h3>Error Types</h3>
-                    ${this.renderErrorTypesChart(stats)}
-                </div>
-                
-                <!-- Expandable error details -->
-                ${stats.stderrErrors > 0 ? `
-                <div class="chart-container full-width">
-                    <details id="stderr-errors-details">
-                        <summary>Most Common Stderr Errors (${stats.stderrErrors})</summary>
-                        ${this.renderErrorMessagesChart(stats.stderrMessages)}
-                    </details>
-                </div>
-                ` : ''}
-                
-                ${stats.validationErrors > 0 ? `
-                <div class="chart-container full-width">
-                    <details id="validation-errors-details">
-                        <summary>Most Common Validation Errors (${stats.validationErrors})</summary>
-                        ${this.renderErrorMessagesChart(stats.validationMessages)}
-                    </details>
-                </div>
-                ` : ''}
-                
-                ${stats.analyzerErrors > 0 ? `
-                <div class="chart-container full-width">
-                    <details id="analyzer-errors-details">
-                        <summary>Most Common Analyzer Errors (${stats.analyzerErrors})</summary>
-                        ${this.renderErrorMessagesChart(stats.analyzerMessages)}
-                    </details>
-                </div>
-                ` : ''}
-                
-                ${mode === 'session' ? `
-                <div class="chart-container full-width">
-                    <h3>Errors by File</h3>
-                    ${this.renderErrorsByFileChart(stats)}
-                </div>
-                ` : ''}
+                ${chart('Success Rate', this.renderSuccessRateChart(stats))}
+                ${chart('Error Distribution', this.renderErrorDistributionChart(stats))}
+                ${chart(`Processing Time ${mode === 'file' ? '' : 'Distribution'}`, this.renderProcessingTimeChart(stats))}
+                ${chart(`Mod ${mode === 'file' ? 'Category' : 'Categories'}`, this.renderCategoriesChart(stats, mode))}
+                ${chart('Error Types', this.renderErrorTypesChart(stats), true)}
+                ${errorDetails('stderr-errors-details', 'Most Common Stderr Errors', stats.stderrErrors, stats.stderrMessages)}
+                ${errorDetails('validation-errors-details', 'Most Common Validation Errors', stats.validationErrors, stats.validationMessages)}
+                ${errorDetails('analyzer-errors-details', 'Most Common Analyzer Errors', stats.analyzerErrors, stats.analyzerMessages)}
+                ${mode === 'session' ? chart('Errors by File', this.renderErrorsByFileChart(stats), true) : ''}
             </div>
             
-            ${mode === 'session' && stats.failedMods && stats.failedMods.length > 0 ? `
-            <div class="stats-section">
-                <h3>Failed to Parse (${stats.failedMods.length})</h3>
-                <div class="failed-mods-list">
-                    ${stats.failedMods.map(mod => `
-                        <div class="failed-mod-item">
-                            <div class="failed-mod-name">${this.escapeHtml(mod.fileName)}</div>
-                            <div class="failed-mod-error">${this.escapeHtml(mod.error || 'Unknown error')}</div>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-            ` : ''}
+            ${failedModsSection()}
         `;
     }
     
     renderOverviewCards(stats, mode) {
+        // Helper to create a stat card
+        const card = (title, value, color = null, style = null) => `
+            <div class="stat-card">
+                <h3>${title}</h3>
+                <div class="stat-value" ${color ? `style="color: ${color}${style ? `; ${style}` : ''}"` : style ? `style="${style}"` : ''}>
+                    ${value}
+                </div>
+            </div>
+        `;
+        
         if (mode === 'file') {
             // Determine status for file view
             let statusText = 'Success';
@@ -262,98 +237,35 @@ export default class StatisticsTab extends BaseTab {
             
             return `
                 <div class="stats-grid">
-                    <div class="stat-card">
-                        <h3>Status</h3>
-                        <div class="stat-value" style="color: ${statusColor}">
-                            ${statusText}
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Processing Time</h3>
-                        <div class="stat-value">${parser.formatDuration(stats.avgTime)}</div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Total Errors</h3>
-                        <div class="stat-value" style="color: var(--error-color)">${stats.totalErrors}</div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Validation Errors</h3>
-                        <div class="stat-value" style="color: var(--warning-color)">${stats.validationErrors}</div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Analyzer Errors</h3>
-                        <div class="stat-value" style="color: var(--error-color)">${stats.analyzerErrors}</div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Stderr Errors</h3>
-                        <div class="stat-value" style="color: var(--error-color)">${stats.stderrErrors}</div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Other Errors</h3>
-                        <div class="stat-value" style="color: var(--warning-color)">${stats.otherErrors}</div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Category</h3>
-                        <div class="stat-value" style="font-size: 1.25rem;">${Object.keys(stats.categories)[0] || 'Unknown'}</div>
-                    </div>
+                    ${card('Status', statusText, statusColor)}
+                    ${card('Processing Time', parser.formatDuration(stats.avgTime))}
+                    ${card('Total Errors', stats.totalErrors, 'var(--error-color)')}
+                    ${card('Validation Errors', stats.validationErrors, 'var(--warning-color)')}
+                    ${card('Analyzer Errors', stats.analyzerErrors, 'var(--error-color)')}
+                    ${card('Stderr Errors', stats.stderrErrors, 'var(--error-color)')}
+                    ${card('Other Errors', stats.otherErrors, 'var(--warning-color)')}
+                    ${card('Category', Object.keys(stats.categories)[0] || '[web-default: Unknown]', null, 'font-size: 1.25rem;')}
                 </div>
             `;
         }
         
+        const successRateColor = stats.successRate > 80 ? 'var(--success-color)' : 'var(--warning-color)';
+        const validationRateColor = stats.validationSuccessRate > 80 ? 'var(--success-color)' : 'var(--warning-color)';
+        
         return `
             <div class="stats-grid">
-                <div class="stat-card">
-                    <h3>Total Analyzed</h3>
-                    <div class="stat-value">${stats.total}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Parse Success Rate</h3>
-                    <div class="stat-value" style="color: ${stats.successRate > 80 ? 'var(--success-color)' : 'var(--warning-color)'}">
-                        ${stats.successRate}%
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <h3>Validation Success Rate</h3>
-                    <div class="stat-value" style="color: ${stats.validationSuccessRate > 80 ? 'var(--success-color)' : 'var(--warning-color)'}">
-                        ${stats.validationSuccessRate}%
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <h3>Successful</h3>
-                    <div class="stat-value" style="color: var(--success-color)">${stats.successful}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Validation Failed</h3>
-                    <div class="stat-value" style="color: var(--warning-color)">${stats.validationFailed || 0}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Failed</h3>
-                    <div class="stat-value" style="color: var(--error-color)">${stats.failed}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Avg Processing Time</h3>
-                    <div class="stat-value">${parser.formatDuration(stats.avgTime)}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Total Errors</h3>
-                    <div class="stat-value" style="color: var(--error-color)">${stats.totalErrors}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Validation Errors</h3>
-                    <div class="stat-value" style="color: var(--warning-color)">${stats.validationErrors}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Analyzer Errors</h3>
-                    <div class="stat-value" style="color: var(--error-color)">${stats.analyzerErrors}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Stderr Errors</h3>
-                    <div class="stat-value" style="color: var(--error-color)">${stats.stderrErrors}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Other Errors</h3>
-                    <div class="stat-value" style="color: var(--warning-color)">${stats.otherErrors}</div>
-                </div>
+                ${card('Total Analyzed', stats.total)}
+                ${card('Parse Success Rate', `${stats.successRate}%`, successRateColor)}
+                ${card('Validation Success Rate', `${stats.validationSuccessRate}%`, validationRateColor)}
+                ${card('Successful', stats.successful, 'var(--success-color)')}
+                ${card('Validation Failed', stats.validationFailed || 0, 'var(--warning-color)')}
+                ${card('Failed', stats.failed, 'var(--error-color)')}
+                ${card('Avg Processing Time', parser.formatDuration(stats.avgTime))}
+                ${card('Total Errors', stats.totalErrors, 'var(--error-color)')}
+                ${card('Validation Errors', stats.validationErrors, 'var(--warning-color)')}
+                ${card('Analyzer Errors', stats.analyzerErrors, 'var(--error-color)')}
+                ${card('Stderr Errors', stats.stderrErrors, 'var(--error-color)')}
+                ${card('Other Errors', stats.otherErrors, 'var(--warning-color)')}
             </div>
         `;
     }

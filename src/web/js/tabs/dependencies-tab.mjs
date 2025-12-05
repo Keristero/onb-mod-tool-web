@@ -2,6 +2,7 @@
 
 import * as parser from '../parser.mjs';
 import BaseTab from './base-tab.mjs';
+import { createElement } from '../utils/html-utils.mjs';
 
 export default class DependenciesTab extends BaseTab {
     constructor(app = null) {
@@ -655,7 +656,7 @@ export default class DependenciesTab extends BaseTab {
         // Add labels
         node.append('text')
             .text(d => {
-                const name = d.name || 'unknown';
+                const name = d.name || '[web-default: unknown]';
                 return name.length > 15 ? name.slice(0, 12) + '...' : name;
             })
             .attr('x', 0)
@@ -836,9 +837,12 @@ export default class DependenciesTab extends BaseTab {
         
         // Create canvas at native resolution
         const scale = 1;
-        const canvas = document.createElement('canvas');
-        canvas.width = contentWidth * scale;
-        canvas.height = contentHeight * scale;
+        const canvas = createElement('canvas', {
+            attributes: {
+                width: contentWidth * scale,
+                height: contentHeight * scale
+            }
+        });
         
         const ctx = canvas.getContext('2d');
         ctx.scale(scale, scale);
@@ -855,9 +859,12 @@ export default class DependenciesTab extends BaseTab {
             ctx.drawImage(img, 0, 0, contentWidth, contentHeight);
             canvas.toBlob((blob) => {
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = mode === 'file' ? 'file-dependency-graph.png' : 'session-dependency-graph.png';
+                const a = createElement('a', {
+                    attributes: {
+                        href: url,
+                        download: mode === 'file' ? 'file-dependency-graph.png' : 'session-dependency-graph.png'
+                    }
+                });
                 a.click();
                 URL.revokeObjectURL(url);
             });

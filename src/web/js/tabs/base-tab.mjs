@@ -1,5 +1,8 @@
 // BaseTab - Common functionality for all tab components
 
+import { escapeHtml, escapeXml, createElement } from '../utils/html-utils.mjs';
+import { formatBytes } from '../utils/format-utils.mjs';
+
 export default class BaseTab {
     constructor() {
         this.container = null;
@@ -32,6 +35,7 @@ export default class BaseTab {
      */
     async onFileProcessed(mod) {
         this.currentMod = mod;
+        this.needsRender = true;
         
         // Load zip archive if available and not already cached
         if (mod.fileData && !mod.zipArchive) {
@@ -116,52 +120,17 @@ export default class BaseTab {
      */
     showEmptyState(message = 'No data available') {
         if (this.container) {
-            this.container.innerHTML = `<div class="empty-state">${this.escapeHtml(message)}</div>`;
+            this.container.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
         }
     }
     
     // ============ Utility Methods ============
     
     /**
-     * Escape HTML to prevent XSS
-     */
-    escapeHtml(text) {
-        if (text === null || text === undefined) return '';
-        const div = document.createElement('div');
-        div.textContent = String(text);
-        return div.innerHTML;
-    }
-    
-    /**
-     * Escape XML special characters
-     */
-    escapeXml(text) {
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&apos;'
-        };
-        return String(text).replace(/[&<>"']/g, m => map[m]);
-    }
-    
-    /**
-     * Format bytes to human-readable size
-     */
-    formatBytes(bytes) {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-    
-    /**
      * Simple Lua syntax highlighting
      */
     syntaxHighlight(code, language = 'lua') {
-        let highlighted = this.escapeHtml(code);
+        let highlighted = escapeHtml(code);
         
         if (language === 'lua') {
             // First, mark comments with placeholders to protect them
@@ -286,9 +255,9 @@ export default class BaseTab {
     downloadFile(filename, content, type = 'text/plain') {
         const blob = new Blob([content], { type });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
+        const a = createElement('a', {
+            attributes: { href: url, download: filename }
+        });
         a.click();
         URL.revokeObjectURL(url);
     }
