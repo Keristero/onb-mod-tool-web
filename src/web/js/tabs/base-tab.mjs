@@ -3,12 +3,30 @@
 import { escapeHtml, escapeXml, createElement } from '../utils/html-utils.mjs';
 import { formatBytes } from '../utils/format-utils.mjs';
 
+/**
+ * Escape special regex characters in a string
+ */
+function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Escape text for use in HTML attribute values
+ */
+function escapeAttribute(str) {
+    return str.replace(/&/g, '&amp;')
+              .replace(/"/g, '&quot;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+}
+
 export default class BaseTab {
     constructor() {
         this.container = null;
         this.currentMod = null;
         this.zipArchive = null;
         this.needsRender = false;
+        this.luaMetadata = null; // Store metadata for tooltips
     }
     
     /**
@@ -17,6 +35,117 @@ export default class BaseTab {
      */
     async init(container) {
         this.container = container;
+        this.initTooltips();
+    }
+    
+    /**
+     * Initialize tooltip system for ONB highlighted elements
+     */
+    initTooltips() {
+        // Create tooltip element if it doesn't exist
+        if (!document.querySelector('.onb-tooltip')) {
+            const tooltip = document.createElement('div');
+            tooltip.className = 'onb-tooltip';
+            document.body.appendChild(tooltip);
+        }
+        
+        // Set up event delegation for tooltip hover
+        if (this.container) {
+            this.addEventListener(this.container, 'mouseover', (e) => {
+                const target = e.target.closest('[data-onb-type]');
+                if (target) {
+                    this.showOnbTooltip(target, e);
+                }
+            });
+            
+            this.addEventListener(this.container, 'mouseout', (e) => {
+                const target = e.target.closest('[data-onb-type]');
+                if (target) {
+                    this.hideOnbTooltip();
+                }
+            });
+            
+            this.addEventListener(this.container, 'mousemove', (e) => {
+                const target = e.target.closest('[data-onb-type]');
+                if (target) {
+                    this.updateOnbTooltipPosition(e);
+                }
+            });
+        }
+    }
+    
+    /**
+     * Show tooltip for ONB highlighted element
+     */
+    showOnbTooltip(element, event) {
+        const tooltip = document.querySelector('.onb-tooltip');
+        if (!tooltip) return;
+        
+        // Get metadata keys from data attributes
+        const type = element.getAttribute('data-onb-type');
+        const name = element.getAttribute('data-onb-name');
+        const extraName = element.getAttribute('data-onb-extra');
+        
+        if (!type || !name || !this.luaMetadata) return;
+        
+        let text = '';
+        
+        // Generate tooltip text based on type
+        if (type === 'function') {
+            text = `Global Function: ${name}`;
+        } else if (type === 'table') {
+            const fields = this.luaMetadata.tables[name] || [];
+            const fieldList = fields.length > 0 ? fields.join(', ') : 'No fields';
+            text = `Table: ${name}\nFields (${fields.length}): ${fieldList}`;
+        } else if (type === 'enum-value') {
+            text = `${name}.${extraName}`;
+        } else if (type === 'variable') {
+            text = `Global Variable: ${name}`;
+        } else if (type === 'method') {
+            const methods = this.luaMetadata.objectMethods[extraName] || [];
+            const methodList = methods.join(', ');
+            text = `${extraName}:${name}\n\nAll ${extraName} methods:\n${methodList}`;
+        }
+        
+        if (!text) return;
+        
+        tooltip.textContent = text;
+        tooltip.classList.add('visible');
+        this.updateOnbTooltipPosition(event);
+    }
+    
+    /**
+     * Hide tooltip
+     */
+    hideOnbTooltip() {
+        const tooltip = document.querySelector('.onb-tooltip');
+        if (tooltip) {
+            tooltip.classList.remove('visible');
+        }
+    }
+    
+    /**
+     * Update tooltip position based on mouse position
+     */
+    updateOnbTooltipPosition(event) {
+        const tooltip = document.querySelector('.onb-tooltip');
+        if (!tooltip || !tooltip.classList.contains('visible')) return;
+        
+        const padding = 15;
+        let x = event.clientX + padding;
+        let y = event.clientY + padding;
+        
+        // Prevent tooltip from going off screen
+        const rect = tooltip.getBoundingClientRect();
+        if (x + rect.width > window.innerWidth) {
+            x = event.clientX - rect.width - padding;
+        }
+        if (y + rect.height > window.innerHeight) {
+            y = event.clientY - rect.height - padding;
+        }
+        
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = y + 'px';
     }
     
     /**
@@ -128,14 +257,49 @@ export default class BaseTab {
     
     /**
      * Simple Lua syntax highlighting
+     * @param {string} code - The code to highlight
+     * @param {string} language - The language (lua or animation)
+     * @param {Object} metadata - Optional metadata with lua globals for enhanced highlighting
      */
-    syntaxHighlight(code, language = 'lua') {
-        let highlighted = escapeHtml(code);
+    syntaxHighlight(code, language = 'lua', metadata = null) {
+        let highlighted;
+        
+        // Store metadata for tooltip lookups
+        if (metadata?.lua) {
+            this.luaMetadata = metadata.lua;
+        }
         
         if (language === 'lua') {
-            // First, mark comments with placeholders to protect them
+            // First, mark comments and strings with placeholders to protect them (BEFORE escapeHtml)
             const commentPlaceholders = [];
+            const stringPlaceholders = [];
             let commentIndex = 0;
+            let stringIndex = 0;
+            
+            // Protect double-quoted strings BEFORE HTML escaping
+            code = code.replace(/"[^"]*"/g, (match) => {
+                const placeholder = `__STRING_DQ_${stringIndex}__`;
+                stringPlaceholders.push({
+                    placeholder,
+                    html: `<span class="hljs-string">${escapeHtml(match)}</span>`
+                });
+                stringIndex++;
+                return placeholder;
+            });
+            
+            // Protect single-quoted strings BEFORE HTML escaping
+            code = code.replace(/'[^']*'/g, (match) => {
+                const placeholder = `__STRING_SQ_${stringIndex}__`;
+                stringPlaceholders.push({
+                    placeholder,
+                    html: `<span class="hljs-string">${escapeHtml(match)}</span>`
+                });
+                stringIndex++;
+                return placeholder;
+            });
+            
+            // Now escape HTML (this will escape <, >, & but not our placeholders)
+            highlighted = escapeHtml(code);
             
             // Multi-line comments: --[[ ... ]] (with any trailing characters)
             highlighted = highlighted.replace(/--\[\[([\s\S]*?)\]\].*$/gm, (match) => {
@@ -159,25 +323,77 @@ export default class BaseTab {
                 return placeholder;
             });
             
-            // Now apply other syntax highlighting (keywords, strings, etc.)
+            // Now apply other syntax highlighting (keywords, etc.)
             
-            // Strings (including quotes)
-            highlighted = highlighted.replace(/(&quot;[^&]*?&quot;|'[^']*?')/g, '<span class="hljs-string">$1</span>');
+            // ONB-specific keywords from metadata (apply FIRST to prioritize over standard Lua)
+            if (metadata?.lua) {
+                // Global functions (unique color)
+                if (metadata.lua.functions) {
+                    metadata.lua.functions.forEach(fn => {
+                        // Avoid matching inside existing HTML tags
+                        const regex = new RegExp(`(?<!<[^>]*?)\\b(${escapeRegex(fn)})\\b(?![^<]*?>)`, 'g');
+                        highlighted = highlighted.replace(regex, `<span class="hljs-onb-function" data-onb-type="function" data-onb-name="${escapeAttribute(fn)}">$1</span>`);
+                    });
+                }
+                
+                // Global tables (unique color)
+                if (metadata.lua.tables) {
+                    Object.keys(metadata.lua.tables).forEach(table => {
+                        const regex = new RegExp(`(?<!<[^>]*?)\\b(${escapeRegex(table)})\\b(?![^<]*?>)`, 'g');
+                        highlighted = highlighted.replace(regex, `<span class="hljs-onb-table" data-onb-type="table" data-onb-name="${escapeAttribute(table)}">$1</span>`);
+                    });
+                    
+                    // Highlight enum/table field values (e.g., Element.Fire, Rank.V5)
+                    Object.entries(metadata.lua.tables).forEach(([tableName, fields]) => {
+                        if (fields && fields.length > 0) {
+                            fields.forEach(field => {
+                                // Match TableName.FieldName pattern
+                                const regex = new RegExp(`(?<!<[^>]*?)\\b${escapeRegex(tableName)}\\.([\\s]*)(${escapeRegex(field)})\\b(?![^<]*?>)`, 'g');
+                                highlighted = highlighted.replace(regex, `<span class="hljs-onb-table" data-onb-type="table" data-onb-name="${escapeAttribute(tableName)}">${tableName}</span>.$1<span class="hljs-onb-enum-value" data-onb-type="enum-value" data-onb-name="${escapeAttribute(tableName)}" data-onb-extra="${escapeAttribute(field)}">$2</span>`);
+                            });
+                        }
+                    });
+                }
+                
+                // Global variables (unique color)
+                if (metadata.lua.variables) {
+                    metadata.lua.variables.forEach(v => {
+                        const regex = new RegExp(`(?<!<[^>]*?)\\b(${escapeRegex(v)})\\b(?![^<]*?>)`, 'g');
+                        highlighted = highlighted.replace(regex, `<span class="hljs-onb-variable" data-onb-type="variable" data-onb-name="${escapeAttribute(v)}">$1</span>`);
+                    });
+                }
+                
+                // Object methods (colored by type) - highlight after colon
+                if (metadata.lua.objectMethods) {
+                    Object.entries(metadata.lua.objectMethods).forEach(([typeName, methods]) => {
+                        const typeClass = `hljs-onb-method-${typeName.toLowerCase()}`;
+                        methods.forEach(method => {
+                            const regex = new RegExp(`(?<!<[^>]*?):([\\s]*)(${escapeRegex(method)})\\b(?![^<]*?>)`, 'g');
+                            highlighted = highlighted.replace(regex, `:$1<span class="${typeClass}" data-onb-type="method" data-onb-name="${escapeAttribute(method)}" data-onb-extra="${escapeAttribute(typeName)}">$2</span>`);
+                        });
+                    });
+                }
+            }
             
-            // Keywords
+            // Lua standard keywords (applied after ONB keywords)
             const keywords = ['local', 'function', 'end', 'if', 'then', 'else', 'elseif', 'for', 'while', 'do', 'repeat', 'until', 'return', 'break', 'and', 'or', 'not', 'in', 'true', 'false', 'nil'];
             keywords.forEach(keyword => {
-                const regex = new RegExp(`\\b(${keyword})\\b`, 'g');
+                const regex = new RegExp(`(?<!<[^>]*?)\\b(${keyword})\\b(?![^<]*?>)`, 'g');
                 highlighted = highlighted.replace(regex, '<span class="hljs-keyword">$1</span>');
             });
             
             // Numbers
-            highlighted = highlighted.replace(/\b(\d+\.?\d*)\b/g, '<span class="hljs-number">$1</span>');
+            highlighted = highlighted.replace(/(?<!<[^>]*?)\b(\d+\.?\d*)\b(?![^<]*?>)/g, '<span class="hljs-number">$1</span>');
             
             // Function calls
-            highlighted = highlighted.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g, '<span class="hljs-title function_">$1</span>(');
+            highlighted = highlighted.replace(/(?<!<[^>]*?)\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\((?![^<]*?>)/g, '<span class="hljs-title function_">$1</span>(');
             
-            // Restore comments
+            // Restore strings first
+            stringPlaceholders.forEach(({ placeholder, html }) => {
+                highlighted = highlighted.replace(placeholder, html);
+            });
+            
+            // Restore comments last
             commentPlaceholders.forEach(({ placeholder, html }) => {
                 highlighted = highlighted.replace(placeholder, html);
             });

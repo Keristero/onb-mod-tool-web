@@ -1282,6 +1282,157 @@ main {
     color: #56b6c2;
 }
 
+/* ONB-specific Lua highlighting - distinct colors for each type */
+
+/* Global functions - bright cyan */
+.hljs-onb-function {
+    color: #61afef; /* Soft blue */
+    font-weight: 500;
+}
+
+/* Global tables - orange/amber */
+.hljs-onb-table {
+    color: #e5c07b; /* Amber/yellow */
+    font-weight: 500;
+}
+
+/* Global variables - purple */
+.hljs-onb-variable {
+    color: #c678dd; /* Purple */
+    font-weight: 500;
+}
+
+/* Object methods - colored by type */
+.hljs-onb-method-player {
+    color: #3b82f6; /* Blue - matches player */
+    font-weight: 500;
+}
+
+.hljs-onb-method-mob {
+    color: #a855f7; /* Purple - matches mob */
+    font-weight: 500;
+}
+
+.hljs-onb-method-card {
+    color: #fbbf24; /* Amber - matches card */
+    font-weight: 500;
+}
+
+.hljs-onb-method-block {
+    color: #0ea5e9; /* Sky blue - matches block */
+    font-weight: 500;
+}
+
+.hljs-onb-method-common {
+    color: #22c55e; /* Green - matches library/common */
+    font-weight: 500;
+}
+
+/* Generic fallback for unknown object types */
+.hljs-onb-method {
+    color: #98c379; /* Green */
+    font-weight: 500;
+}
+
+/* Enum/table field values - lighter amber */
+.hljs-onb-enum-value {
+    color: #d19a66; /* Orange/amber - lighter than table name */
+    font-weight: 400;
+}
+
+/* Legacy global marker (for backwards compatibility) */
+.hljs-onb-global {
+    color: #00d9ff; /* Bright cyan/teal */
+    font-weight: 500;
+}
+
+/* Dark theme variant (for light backgrounds if ever used) */
+@media (prefers-color-scheme: light) {
+    .hljs-onb-function {
+        color: #0066cc;
+    }
+    .hljs-onb-table {
+        color: #c18401;
+    }
+    .hljs-onb-variable {
+        color: #a626a4;
+    }
+    .hljs-onb-method-player {
+        color: #0066cc;
+    }
+    .hljs-onb-method-mob {
+        color: #7c3aed;
+    }
+    .hljs-onb-method-card {
+        color: #d97706;
+    }
+    .hljs-onb-method-block {
+        color: #0284c7;
+    }
+    .hljs-onb-method-common {
+        color: #16a34a;
+    }
+    .hljs-onb-method {
+        color: #50a14f;
+    }
+    .hljs-onb-enum-value {
+        color: #986801;
+    }
+    .hljs-onb-global {
+        color: #0099cc;
+    }
+}
+
+/* ONB Tooltip for syntax highlighted elements */
+.onb-tooltip {
+    position: fixed;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.75rem;
+    max-width: 400px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 10000;
+    pointer-events: none;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+}
+
+.onb-tooltip.visible {
+    opacity: 1;
+}
+
+.onb-tooltip-title {
+    font-weight: 600;
+    color: var(--primary-color);
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.25rem;
+}
+
+.onb-tooltip-content {
+    color: var(--text-color);
+}
+
+/* Make ONB highlighted elements show cursor pointer when they have tooltips */
+span[data-onb-type] {
+    cursor: help;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: currentColor;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+
+span[data-onb-type]:hover {
+    text-decoration-style: solid;
+}
+
 .line-numbers {
     padding-right: 1rem;
     margin-right: 1rem;

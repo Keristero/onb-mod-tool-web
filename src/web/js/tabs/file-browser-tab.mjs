@@ -6,6 +6,7 @@ import { FilePreviewMixin } from './file-preview-mixin.mjs';
 import { ErrorManager } from './error-manager.mjs';
 import { escapeHtml } from '../utils/html-utils.mjs';
 import { toggleClass } from '../utils/dom-helpers.mjs';
+import { LuaGlobalsHighlighter, loadVersionMetadata } from '../utils/lua-globals.mjs';
 
 export default class FileBrowserTab extends BaseTab {
     constructor() {
@@ -13,10 +14,15 @@ export default class FileBrowserTab extends BaseTab {
         Object.assign(this, FilePreviewMixin);
         this.selectedFile = null;
         this.errorManager = new ErrorManager();
+        this.luaGlobalsHighlighter = null;
+        this.metadata = null;
+        this.currentVersion = 'latest';
     }
     
     async init(container) {
         await super.init(container);
+        await this.loadMetadata(this.currentVersion);
+        
         this.container.innerHTML = `
             <div class="file-browser">
                 <div class="file-tree-container">
@@ -36,6 +42,35 @@ export default class FileBrowserTab extends BaseTab {
         `;
         
         this.setupResizer();
+    }
+    
+    /**
+     * Load metadata for the specified analyzer version
+     */
+    async loadMetadata(version = 'latest') {
+        try {
+            this.metadata = await loadVersionMetadata(version);
+            if (this.metadata.lua) {
+                console.log('Loaded Lua metadata for version', version, ':', this.metadata.lua);
+                this.luaGlobalsHighlighter = new LuaGlobalsHighlighter(this.metadata);
+                console.log('Lua globals highlighter initialized');
+            }
+        } catch (error) {
+            console.warn('Failed to initialize Lua globals highlighter:', error);
+        }
+    }
+    
+    /**
+     * Set the analyzer version and reload metadata
+     */
+    async setVersion(version) {
+        this.currentVersion = version;
+        await this.loadMetadata(version);
+        
+        // Re-render current file if one is selected
+        if (this.selectedFile && this.currentMod) {
+            await this.showFilePreview(this.currentMod, this.selectedFile);
+        }
     }
     
     async onFileProcessed(mod) {
@@ -290,7 +325,7 @@ export default class FileBrowserTab extends BaseTab {
             const errorClass = hasError ? 'error-line' : '';
             
             // Apply syntax highlighting first
-            let highlightedLine = this.syntaxHighlight(line, ext);
+            let highlightedLine = this.syntaxHighlight(line, ext, this.metadata);
             
             // Then add column markers for each error on this line
             if (hasError) {
@@ -307,6 +342,14 @@ export default class FileBrowserTab extends BaseTab {
                 <div class="code-content">${linesHtml}</div>
             </div>
         `);
+        
+        // Enhance Lua syntax highlighting with ONB globals
+        if (ext === 'lua' && this.luaGlobalsHighlighter) {
+            const codeLines = this.querySelectorAll('.code-line');
+            codeLines.forEach(line => {
+                this.luaGlobalsHighlighter.enhanceHighlighting(line);
+            });
+        }
         
         // Add error tooltips
         if (errors.length > 0) {

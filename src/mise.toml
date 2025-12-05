@@ -43,7 +43,34 @@ echo "✓ nix-portable installed successfully"
 echo "Run 'source ~/.bashrc' or restart your terminal to use it"
 '''
 
+[tasks."extract-globals"]
+description = "Extract Lua globals from DartLangModTool source"
+depends = ["build:web"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
 
+echo "Extracting Lua globals from DartLangModTool source..."
+
+# The metadata.json should already exist in web/versions/latest/ from build:web
+LATEST_META="web/versions/latest/metadata.json"
+if [ ! -f "$LATEST_META" ]; then
+    echo "Error: No metadata.json found at $LATEST_META"
+    echo "Please run 'mise run build:web' first"
+    exit 1
+fi
+
+# Extract version from metadata
+VERSION=$(grep '"version"' "$LATEST_META" | head -1 | cut -d'"' -f4)
+echo "Processing version: ${VERSION}"
+
+# Run extraction script to add Lua globals to metadata.json in latest/
+node ../scripts/extract_globals.js \
+  --source="DartLangModTool-master/lib/src/lua" \
+  --output="${LATEST_META}"
+
+echo "✓ Lua globals extracted and added to ${LATEST_META}"
+'''
 
 [tasks."build:web"]
 description = "Build WebAssembly module and copy to web/versions/latest/"
@@ -83,6 +110,9 @@ if [ -f "$WASM_PATH/onb_mod_file.wasm" ]; then
     cp "$WASM_PATH/onb_mod_file.wasm" web/versions/latest/
     cp "$WASM_PATH/onb_mod_file.mjs" web/versions/latest/
     cp "$WASM_PATH/metadata.json" web/versions/latest/
+    
+    # Make copied files writable for extract-globals task
+    chmod u+w web/versions/latest/*
 else
     echo "Error: WASM files not found at $WASM_PATH"
     exit 1
@@ -92,10 +122,9 @@ echo "✓ WebAssembly module built and copied to web/versions/latest/"
 '''
 
 
-
 [tasks."build:all"]
-description = "Build web target"
-depends = ["build:web"]
+description = "Build web target and extract Lua globals"
+depends = ["extract-globals"]
 run = '''
 echo "✓ All builds complete"
 '''

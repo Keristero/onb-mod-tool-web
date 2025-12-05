@@ -93,11 +93,23 @@ jobs:
           install: true
           cache: true
       
+      - name: Setup Node.js
+        if: steps.version_check.outputs.should_build == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
       - name: Build WASM module
         if: steps.version_check.outputs.should_build == 'true'
         run: |
           cd src
           mise run build:web
+      
+      - name: Extract Lua globals
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          cd src
+          mise run extract-globals
       
       - name: Get version from pubspec.yaml
         if: steps.version_check.outputs.should_build == 'true'
@@ -134,6 +146,16 @@ jobs:
           fi
           if [ ! -f web/versions/latest/onb_mod_file.mjs ]; then
             echo "Error: MJS file not found"
+            exit 1
+          fi
+          if [ ! -f web/versions/latest/metadata.json ]; then
+            echo "Error: metadata.json not found"
+            exit 1
+          fi
+          
+          # Verify metadata has lua globals
+          if ! grep -q '"lua"' web/versions/latest/metadata.json; then
+            echo "Error: metadata.json missing lua globals"
             exit 1
           fi
           

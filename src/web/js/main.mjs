@@ -601,6 +601,12 @@ class ModAnalyzer {
         try {
             await this.sendWorkerMessage('switch-version', { version });
             this.currentVersion = version;
+            
+            // Update file browser tab to use new version's metadata
+            if (this.tabs.files && this.tabs.files.setVersion) {
+                await this.tabs.files.setVersion(version);
+            }
+            
             this.hideLoading();
         } catch (error) {
             this.hideLoading();
