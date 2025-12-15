@@ -64,8 +64,13 @@ class ModAnalyzer {
             await tab.init(container);
         }
         
-        // Load available versions
+        // Load available versions (this sets this.currentVersion)
         await this.loadVersions();
+        
+        // Set version for file browser tab to load metadata
+        if (this.tabs.files && this.tabs.files.setVersion) {
+            await this.tabs.files.setVersion(this.currentVersion);
+        }
         
         // Initialize worker
         await this.initWorker();

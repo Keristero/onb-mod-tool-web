@@ -16,12 +16,12 @@ export default class FileBrowserTab extends BaseTab {
         this.errorManager = new ErrorManager();
         this.luaGlobalsHighlighter = null;
         this.metadata = null;
-        this.currentVersion = 'latest';
+        this.currentVersion = null;
     }
     
     async init(container) {
         await super.init(container);
-        await this.loadMetadata(this.currentVersion);
+        // Don't load metadata here - main app will call setVersion with correct version
         
         this.container.innerHTML = `
             <div class="file-browser">
