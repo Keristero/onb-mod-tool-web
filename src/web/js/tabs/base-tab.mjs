@@ -102,9 +102,20 @@ export default class BaseTab {
         } else if (type === 'variable') {
             text = `Global Variable: ${name}`;
         } else if (type === 'method') {
-            const methods = this.luaMetadata.objectMethods[extraName] || [];
-            const methodList = methods.join(', ');
-            text = `${extraName}:${name}\n\nAll ${extraName} methods:\n${methodList}`;
+            if (extraName === 'Common') {
+                // For common methods, show which types share this method
+                const sharedBy = this.luaMetadata.methodSharing && this.luaMetadata.methodSharing[name];
+                if (sharedBy && sharedBy.length > 0) {
+                    text = `Common method: ${name}\nShared by: ${sharedBy.join(', ')}`;
+                } else {
+                    text = `Common method: ${name}`;
+                }
+            } else {
+                // Type-specific method
+                const methods = this.luaMetadata.objectMethods[extraName] || [];
+                const methodList = methods.join(', ');
+                text = `${extraName}:${name}\n\nAll ${extraName} methods:\n${methodList}`;
+            }
         }
         
         if (!text) return;
@@ -364,13 +375,31 @@ export default class BaseTab {
                 }
                 
                 // Object methods (colored by type) - highlight after colon
+                // Process type-specific methods first, then Common methods last to ensure they override
                 if (metadata.lua.objectMethods) {
-                    Object.entries(metadata.lua.objectMethods).forEach(([typeName, methods]) => {
+                    // Separate Common from type-specific
+                    const typeSpecific = Object.entries(metadata.lua.objectMethods)
+                        .filter(([typeName, _]) => typeName !== 'Common');
+                    const commonMethods = metadata.lua.objectMethods.Common || [];
+                    
+                    // Process type-specific methods first
+                    typeSpecific.forEach(([typeName, methods]) => {
                         const typeClass = `hljs-onb-method-${typeName.toLowerCase()}`;
                         methods.forEach(method => {
                             const regex = new RegExp(`(?<!<[^>]*?):([\\s]*)(${escapeRegex(method)})\\b(?![^<]*?>)`, 'g');
                             highlighted = highlighted.replace(regex, `:$1<span class="${typeClass}" data-onb-type="method" data-onb-name="${escapeAttribute(method)}" data-onb-extra="${escapeAttribute(typeName)}">$2</span>`);
                         });
+                    });
+                    
+                    // Process Common methods last (will override type-specific if they were incorrectly classified)
+                    commonMethods.forEach(method => {
+                        // First, remove any existing method span for this method to avoid nested spans
+                        const removeRegex = new RegExp(`(:)([\\s]*)<span class="hljs-onb-method-[^"]*?"[^>]*?>${escapeRegex(method)}</span>`, 'g');
+                        highlighted = highlighted.replace(removeRegex, `$1$2${method}`);
+                        
+                        // Now apply Common class
+                        const regex = new RegExp(`(?<!<[^>]*?):([\\s]*)(${escapeRegex(method)})\\b(?![^<]*?>)`, 'g');
+                        highlighted = highlighted.replace(regex, `:$1<span class="hljs-onb-method-common" data-onb-type="method" data-onb-name="${escapeAttribute(method)}" data-onb-extra="Common">$2</span>`);
                     });
                 }
             }
@@ -398,6 +427,9 @@ export default class BaseTab {
                 highlighted = highlighted.replace(placeholder, html);
             });
         } else if (language === 'animation') {
+            // Initialize highlighted for animation files
+            highlighted = escapeHtml(code);
+            
             // Keywords
             const keywords = ['keyframe', 'key', 'animation', 'anim', 'point', 'true', 'false', '!image_path', '!frame_rate', '!app'];
             keywords.forEach(keyword => {
@@ -411,17 +443,20 @@ export default class BaseTab {
             // Numbers
             highlighted = highlighted.replace(/\b(\d+\.?\d*)\b/g, '<span class="hljs-number">$1</span>');
             
-            // Comments
-            highlighted = highlighted.replace(/(#.*$)/gm, '<span class="hljs-comment">$1</span>');
-            
             // Attributes
             highlighted = highlighted.replace(/(\@\S+)/g, '<span class="hljs-title function_">$1</span>');
         } else if (language === 'json') {
+            // Initialize highlighted for JSON files
+            highlighted = escapeHtml(code);
+            
             // JSON highlighting
             highlighted = highlighted.replace(/(&quot;[^&]*?&quot;):/g, '<span class="hljs-attr">$1</span>:');
             highlighted = highlighted.replace(/:\s*(&quot;[^&]*?&quot;)/g, ': <span class="hljs-string">$1</span>');
             highlighted = highlighted.replace(/\b(true|false|null)\b/g, '<span class="hljs-literal">$1</span>');
             highlighted = highlighted.replace(/\b(\d+\.?\d*)\b/g, '<span class="hljs-number">$1</span>');
+        } else {
+            // Default case for other languages - just escape HTML
+            highlighted = escapeHtml(code);
         }
         
         return highlighted;

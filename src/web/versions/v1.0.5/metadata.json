@@ -41,22 +41,6 @@
         "Dark"
       ],
       "Color": [],
-      "ColorMode": [
-        "V1",
-        "V2",
-        "V3",
-        "Sp",
-        "Ex",
-        "Rare1",
-        "Rare2",
-        "Nm",
-        "Rv",
-        "Ds",
-        "Alpha",
-        "Beta",
-        "Omega",
-        "Sigma"
-      ],
       "DefenseFrameStateJudge": [],
       "DefenseOrder": [
         "Always",
@@ -124,24 +108,21 @@
       ],
       "table": [],
       "Tile": [
-        "Normal",
-        "Cracked",
         "Broken",
-        "Ice",
-        "Grass",
-        "Lava",
-        "Poison",
-        "Empty",
-        "Holy",
+        "Cracked",
+        "DirectionDown",
         "DirectionLeft",
         "DirectionRight",
         "DirectionUp",
-        "DirectionDown",
-        "Volcano",
-        "Sea",
-        "Sand",
-        "Metal",
-        "Hidden"
+        "Empty",
+        "Grass",
+        "Hidden",
+        "Holy",
+        "Ice",
+        "Lava",
+        "Normal",
+        "Poison",
+        "Volcano"
       ]
     },
     "variables": [
@@ -151,71 +132,89 @@
     "objectMethods": {
       "Block": [
         "as_program",
-        "set_color",
-        "set_description",
         "set_mutator",
-        "set_name",
         "set_shape"
       ],
       "Card": [
         "get_card_props",
-        "set_codes",
-        "set_icon_texture"
+        "set_codes"
       ],
       "Common": [
         "declare_package_id",
+        "set_attack",
+        "set_color",
         "set_description",
+        "set_health",
+        "set_icon_texture",
         "set_name",
-        "set_preview_texture"
+        "set_preview_texture",
+        "set_speed"
       ],
       "Mob": [
         "create_spawner",
         "enable_boss_battle",
         "enable_freedom_mission",
         "get_field",
-        "set_attack",
         "set_background",
-        "set_description",
-        "set_health",
-        "set_name",
         "set_preview_texture_path",
-        "set_speed",
         "stream_music"
       ],
       "Player": [
         "create_form",
-        "create_node",
-        "create_sync_node",
         "get_animation",
         "get_color",
         "get_sprite",
-        "register_component",
         "set_air_shoe",
         "set_animation",
-        "set_attack",
         "set_attack_level",
         "set_charge_level",
         "set_charge_position",
         "set_charged_attack",
-        "set_color",
         "set_element",
         "set_emotions_texture_path",
         "set_float_shoe",
         "set_fully_charged_color",
-        "set_health",
         "set_height",
-        "set_icon_texture",
         "set_mugshot_animation_path",
         "set_mugshot_texture_path",
-        "set_name",
         "set_overworld_animation_path",
         "set_overworld_texture_path",
         "set_special_description",
-        "set_speed",
         "set_speed_level",
         "set_texture",
         "set_uses_sword",
         "sprite"
+      ]
+    },
+    "methodSharing": {
+      "set_icon_texture": [
+        "Card",
+        "Player"
+      ],
+      "set_health": [
+        "Mob",
+        "Player"
+      ],
+      "set_attack": [
+        "Mob",
+        "Player"
+      ],
+      "set_speed": [
+        "Mob",
+        "Player"
+      ],
+      "set_name": [
+        "Block",
+        "Mob",
+        "Player"
+      ],
+      "set_color": [
+        "Block",
+        "Player"
+      ],
+      "set_description": [
+        "Block",
+        "Mob"
       ]
     }
   }

@@ -546,19 +546,72 @@ const writeJsonFile = (filePath, data) => {
 // Result Serialization
 // ============================================================================
 
-const serializeCollector = (collector) => ({
-  functions: Array.from(collector.functions).sort(),
-  tables: Object.fromEntries(
-    Array.from(collector.tables.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-  ),
-  variables: Array.from(collector.variables).sort(),
-  objectMethods: Object.fromEntries(
-    Array.from(collector.objectMethods.entries())
-      .map(([type, methods]) => [type, Array.from(methods).sort()])
-      .sort(([a], [b]) => a.localeCompare(b))
-  )
-});
+const deduplicateCommonMethods = (objectMethods, commonThreshold = 2) => {
+  // Track which types have each method
+  const methodCounts = new Map(); // method → Set<objectType>
+  
+  for (const [type, methods] of objectMethods.entries()) {
+    for (const method of methods) {
+      if (!methodCounts.has(method)) {
+        methodCounts.set(method, new Set());
+      }
+      methodCounts.get(method).add(type);
+    }
+  }
+  
+  // Find common methods (appear in commonThreshold+ types, excluding "Common" type itself)
+  const commonMethods = new Set();
+  const methodSharing = {};
+  
+  for (const [method, types] of methodCounts.entries()) {
+    const nonCommonTypes = Array.from(types).filter(t => t !== 'Common');
+    if (nonCommonTypes.length >= commonThreshold) {
+      commonMethods.add(method);
+      methodSharing[method] = nonCommonTypes.sort();
+    }
+  }
+  
+  // Remove common methods from type-specific arrays
+  const deduplicated = new Map();
+  for (const [type, methods] of objectMethods.entries()) {
+    if (type === 'Common') {
+      // Merge existing Common methods with detected common methods
+      const allCommon = new Set([...methods, ...commonMethods]);
+      deduplicated.set('Common', allCommon);
+    } else {
+      // Remove common methods from type-specific arrays
+      const filtered = new Set(Array.from(methods).filter(m => !commonMethods.has(m)));
+      deduplicated.set(type, filtered);
+    }
+  }
+  
+  // If Common type didn't exist, create it
+  if (!deduplicated.has('Common')) {
+    deduplicated.set('Common', commonMethods);
+  }
+  
+  return { deduplicated, methodSharing };
+};
+
+const serializeCollector = (collector) => {
+  // Deduplicate common methods
+  const { deduplicated, methodSharing } = deduplicateCommonMethods(collector.objectMethods);
+  
+  return {
+    functions: Array.from(collector.functions).sort(),
+    tables: Object.fromEntries(
+      Array.from(collector.tables.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+    ),
+    variables: Array.from(collector.variables).sort(),
+    objectMethods: Object.fromEntries(
+      Array.from(deduplicated.entries())
+        .map(([type, methods]) => [type, Array.from(methods).sort()])
+        .sort(([a], [b]) => a.localeCompare(b))
+    ),
+    methodSharing: methodSharing
+  };
+};
 
 const printSummary = (luaGlobals) => {
   console.log('\n=== Extraction Summary ===');
@@ -570,6 +623,13 @@ const printSummary = (luaGlobals) => {
   Object.entries(luaGlobals.objectMethods).forEach(([type, methods]) => {
     console.log(`  ${type}: ${methods.length} methods`);
   });
+  
+  if (luaGlobals.methodSharing && Object.keys(luaGlobals.methodSharing).length > 0) {
+    console.log(`\nCommon methods (shared across types): ${Object.keys(luaGlobals.methodSharing).length}`);
+    Object.entries(luaGlobals.methodSharing).forEach(([method, types]) => {
+      console.log(`  ${method}: ${types.join(', ')}`);
+    });
+  }
 };
 
 // ============================================================================
