@@ -99,42 +99,11 @@ jobs:
         with:
           node-version: '20'
       
-      - name: Build WASM module
+      - name: Build WASM and extract Lua globals
         if: steps.version_check.outputs.should_build == 'true'
         run: |
           cd src
-          mise run build:web
-      
-      - name: Extract Lua globals
-        if: steps.version_check.outputs.should_build == 'true'
-        run: |
-          cd src
-          mise run extract-globals
-      
-      - name: Get version from pubspec.yaml
-        if: steps.version_check.outputs.should_build == 'true'
-        run: |
-          # Extract version from pubspec.yaml in the Dart tool submodule
-          VERSION=$(grep '^version:' src/DartLangModTool-master/pubspec.yaml | sed 's/version: *//' | tr -d '\r\n')
-          
-          if [ -z "$VERSION" ]; then
-            echo "Error: Could not extract version from pubspec.yaml"
-            exit 1
-          fi
-          
-          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
-            echo "Error: Version must be in semver format (e.g., 1.2.3), got: $VERSION"
-            exit 1
-          fi
-          
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "Building version: $VERSION"
-      
-      - name: Build WASM module
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          cd src
-          mise run build:web
+          mise run build:all
       
       - name: Verify build artifacts
         if: steps.version_check.outputs.should_build == 'true'
