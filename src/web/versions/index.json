@@ -2,7 +2,7 @@
   {
     "version": "v1.0.5",
     "latest": true,
-    "buildDate": "2025-12-05T04:06:43Z",
+    "buildDate": "2025-12-15T21:06:04Z",
     "features": [
       "mod-analysis",
       "lua-parsing",

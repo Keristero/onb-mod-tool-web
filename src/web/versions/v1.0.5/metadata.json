@@ -1,10 +1,222 @@
 {
   "version": "1.0.5",
-  "buildDate": "2025-12-05T04:06:40Z",
-  "dartVersion": "Dart SDK version: 3.9.4 (stable) (Tue Sep 30 12:08:50 2025 -0700) on "linux_x64"",
+  "buildDate": "2025-12-15T21:06:03Z",
+  "dartVersion": "Dart SDK version: 3.9.4 (stable) (Tue Sep 30 12:08:50 2025 -0700) on \"linux_x64\"",
   "features": [
     "mod-analysis",
     "lua-parsing",
     "json-output"
-  ]
+  ],
+  "lua": {
+    "functions": [
+      "Drag",
+      "include",
+      "ipairs",
+      "join",
+      "make_animation_lockout",
+      "make_frame_data",
+      "new",
+      "pairs",
+      "print"
+    ],
+    "tables": {
+      "AudioPriority": [
+        "Lowest",
+        "Low",
+        "High",
+        "Highest"
+      ],
+      "Blocks": [
+        "White",
+        "Red",
+        "Green",
+        "Blue",
+        "Pink",
+        "Yellow"
+      ],
+      "CardClass": [
+        "Standard",
+        "Mega",
+        "Giga",
+        "Dark"
+      ],
+      "Color": [],
+      "ColorMode": [
+        "V1",
+        "V2",
+        "V3",
+        "Sp",
+        "Ex",
+        "Rare1",
+        "Rare2",
+        "Nm",
+        "Rv",
+        "Ds",
+        "Alpha",
+        "Beta",
+        "Omega",
+        "Sigma"
+      ],
+      "DefenseFrameStateJudge": [],
+      "DefenseOrder": [
+        "Always",
+        "CollisionOnly"
+      ],
+      "DefensePriority": [
+        "Barrier",
+        "Body",
+        "CardAction",
+        "Trap",
+        "Last"
+      ],
+      "DefenseRule": [],
+      "DrawBits": [
+        "Background",
+        "Floor",
+        "Object",
+        "Attack",
+        "Effect",
+        "Misc"
+      ],
+      "Element": [
+        "None",
+        "Fire",
+        "Aqua",
+        "Elec",
+        "Wood",
+        "Sword",
+        "Wind",
+        "Cursor",
+        "Summon",
+        "Plus",
+        "Break",
+        "Recov",
+        "Invis",
+        "Panel"
+      ],
+      "Engine": [],
+      "Lifetimes": [
+        "Local",
+        "Battle",
+        "UI"
+      ],
+      "Playback": [
+        "None",
+        "Loop",
+        "Reverse",
+        "Bounce"
+      ],
+      "Rank": [
+        "V1",
+        "V2",
+        "V3",
+        "Sp",
+        "Ex",
+        "Rare1",
+        "Rare2",
+        "Nm",
+        "Rv",
+        "Ds",
+        "Alpha",
+        "Beta",
+        "Omega",
+        "Sigma"
+      ],
+      "table": [],
+      "Tile": [
+        "Normal",
+        "Cracked",
+        "Broken",
+        "Ice",
+        "Grass",
+        "Lava",
+        "Poison",
+        "Empty",
+        "Holy",
+        "DirectionLeft",
+        "DirectionRight",
+        "DirectionUp",
+        "DirectionDown",
+        "Volcano",
+        "Sea",
+        "Sand",
+        "Metal",
+        "Hidden"
+      ]
+    },
+    "variables": [
+      "_folderpath",
+      "_modpath"
+    ],
+    "objectMethods": {
+      "Block": [
+        "as_program",
+        "set_color",
+        "set_description",
+        "set_mutator",
+        "set_name",
+        "set_shape"
+      ],
+      "Card": [
+        "get_card_props",
+        "set_codes",
+        "set_icon_texture"
+      ],
+      "Common": [
+        "declare_package_id",
+        "set_description",
+        "set_name",
+        "set_preview_texture"
+      ],
+      "Mob": [
+        "create_spawner",
+        "enable_boss_battle",
+        "enable_freedom_mission",
+        "get_field",
+        "set_attack",
+        "set_background",
+        "set_description",
+        "set_health",
+        "set_name",
+        "set_preview_texture_path",
+        "set_speed",
+        "stream_music"
+      ],
+      "Player": [
+        "create_form",
+        "create_node",
+        "create_sync_node",
+        "get_animation",
+        "get_color",
+        "get_sprite",
+        "register_component",
+        "set_air_shoe",
+        "set_animation",
+        "set_attack",
+        "set_attack_level",
+        "set_charge_level",
+        "set_charge_position",
+        "set_charged_attack",
+        "set_color",
+        "set_element",
+        "set_emotions_texture_path",
+        "set_float_shoe",
+        "set_fully_charged_color",
+        "set_health",
+        "set_height",
+        "set_icon_texture",
+        "set_mugshot_animation_path",
+        "set_mugshot_texture_path",
+        "set_name",
+        "set_overworld_animation_path",
+        "set_overworld_texture_path",
+        "set_special_description",
+        "set_speed",
+        "set_speed_level",
+        "set_texture",
+        "set_uses_sword",
+        "sprite"
+      ]
+    }
+  }
 }
