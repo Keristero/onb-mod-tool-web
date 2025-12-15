@@ -149,8 +149,8 @@ export class LuaGlobalsHighlighter {
 export async function loadVersionMetadata(version = 'latest') {
   try {
     const metadataPath = version === 'latest' 
-      ? '/versions/latest/metadata.json'
-      : `/versions/${version}/metadata.json`;
+      ? 'versions/latest/metadata.json'
+      : `versions/${version}/metadata.json`;
     
     const response = await fetch(metadataPath);
     if (!response.ok) {
