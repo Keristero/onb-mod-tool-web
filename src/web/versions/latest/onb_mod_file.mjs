@@ -85,8 +85,8 @@ class CompiledApp {
 
     // Imports
     const dart2wasm = {
-            _37: x0 => new Array(x0),
-      _42: (x0,x1,x2) => { x0[x1] = x2 },
+            _36: x0 => new Array(x0),
+      _41: (x0,x1,x2) => { x0[x1] = x2 },
       _45: (x0,x1,x2) => new DataView(x0,x1,x2),
       _47: x0 => new Int8Array(x0),
       _48: (x0,x1,x2) => new Uint8Array(x0,x1,x2),
@@ -175,28 +175,31 @@ class CompiledApp {
       _182: f => finalizeWrapper(f, function(x0,x1) { return dartInstance.exports._182(f,arguments.length,x0,x1) }),
       _199: (c) =>
       queueMicrotask(() => dartInstance.exports.$invokeCallback(c)),
-      _206: (s, m) => {
+      _201: (s, m) => {
         try {
           return new RegExp(s, m);
         } catch (e) {
           return String(e);
         }
       },
-      _208: (x0,x1) => x0.test(x1),
-      _211: o => o === undefined,
-      _213: o => typeof o === 'function' && o[jsWrappedDartFunctionSymbol] === true,
-      _216: o => o instanceof RegExp,
-      _217: (l, r) => l === r,
-      _218: o => o,
-      _219: o => o,
-      _220: o => o,
-      _221: b => !!b,
-      _222: o => o.length,
-      _224: (o, i) => o[i],
-      _225: f => f.dartFunction,
-      _232: (o, p) => o[p],
-      _236: o => String(o),
-      _238: o => {
+      _203: (x0,x1) => x0.test(x1),
+      _206: o => o === undefined,
+      _208: o => typeof o === 'function' && o[jsWrappedDartFunctionSymbol] === true,
+      _211: o => o instanceof RegExp,
+      _212: (l, r) => l === r,
+      _213: o => o,
+      _214: o => o,
+      _215: o => o,
+      _216: b => !!b,
+      _217: o => o.length,
+      _219: (o, i) => o[i],
+      _220: f => f.dartFunction,
+      _227: (o, p) => o[p],
+      _231: o => String(o),
+      _232: (p, s, f) => p.then(s, (e) => f(e, e === undefined)),
+      _233: f => finalizeWrapper(f, function(x0) { return dartInstance.exports._233(f,arguments.length,x0) }),
+      _234: f => finalizeWrapper(f, function(x0,x1) { return dartInstance.exports._234(f,arguments.length,x0,x1) }),
+      _235: o => {
         if (o === undefined) return 1;
         var type = typeof o;
         if (type === 'boolean') return 2;
@@ -221,33 +224,34 @@ class CompiledApp {
             o instanceof SharedArrayBuffer) {
             return 17;
         }
-        return 18;
+        if (o instanceof Promise) return 18;
+        return 19;
       },
-      _243: (jsArray, jsArrayOffset, wasmArray, wasmArrayOffset, length) => {
+      _240: (jsArray, jsArrayOffset, wasmArray, wasmArrayOffset, length) => {
         const getValue = dartInstance.exports.$wasmI8ArrayGet;
         for (let i = 0; i < length; i++) {
           jsArray[jsArrayOffset + i] = getValue(wasmArray, wasmArrayOffset + i);
         }
       },
-      _244: (jsArray, jsArrayOffset, wasmArray, wasmArrayOffset, length) => {
+      _241: (jsArray, jsArrayOffset, wasmArray, wasmArrayOffset, length) => {
         const setValue = dartInstance.exports.$wasmI8ArraySet;
         for (let i = 0; i < length; i++) {
           setValue(wasmArray, wasmArrayOffset + i, jsArray[jsArrayOffset + i]);
         }
       },
-      _247: (jsArray, jsArrayOffset, wasmArray, wasmArrayOffset, length) => {
+      _244: (jsArray, jsArrayOffset, wasmArray, wasmArrayOffset, length) => {
         const getValue = dartInstance.exports.$wasmI32ArrayGet;
         for (let i = 0; i < length; i++) {
           jsArray[jsArrayOffset + i] = getValue(wasmArray, wasmArrayOffset + i);
         }
       },
-      _253: x0 => new ArrayBuffer(x0),
-      _258: x0 => x0.flags,
-      _268: x0 => x0.random(),
-      _271: () => globalThis.Math,
-      _272: Function.prototype.call.bind(Number.prototype.toString),
-      _273: Function.prototype.call.bind(BigInt.prototype.toString),
-      _274: Function.prototype.call.bind(Number.prototype.toString),
+      _250: x0 => new ArrayBuffer(x0),
+      _255: x0 => x0.flags,
+      _265: x0 => x0.random(),
+      _268: () => globalThis.Math,
+      _269: Function.prototype.call.bind(Number.prototype.toString),
+      _270: Function.prototype.call.bind(BigInt.prototype.toString),
+      _271: Function.prototype.call.bind(Number.prototype.toString),
 
     };
 
