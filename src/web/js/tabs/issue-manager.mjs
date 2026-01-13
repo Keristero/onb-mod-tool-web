@@ -1,4 +1,4 @@
-// ErrorManager - Centralized error parsing and management
+// IssueManager - Centralized error and warning parsing and management
 
 import { extractErrors } from '../parser.mjs';
 
@@ -93,27 +93,31 @@ export function findBestPathMatch(targetPath, candidatePaths) {
     return bestMatch;
 }
 
-export class ErrorManager {
+export class IssueManager {
     constructor() {
-        this.errorsByFile = new Map(); // fileName -> [{line, column, message}]
+        this.errorsByFile = new Map(); // fileName -> [{line, column, message, type}]
+        this.warningsByFile = new Map(); // fileName -> [{line, column, message, type}]
         this.rawStderr = '';
     }
     
     /**
-     * Parse stderr and build error map (errors only, not warnings)
+     * Parse stderr and build error and warning maps
      */
-    parseErrors(stderr) {
+    parseIssues(stderr) {
         if (!stderr) return;
         
         this.rawStderr = stderr;
         this.errorsByFile.clear();
+        this.warningsByFile.clear();
         
         // Use the comprehensive parser from parser.mjs
         const allItems = extractErrors(stderr);
         
-        // Filter to only errors (not warnings) and build map by file
+        // Separate errors and warnings
         const errorsOnly = allItems.filter(item => item.type === 'error');
+        const warningsOnly = allItems.filter(item => item.type === 'warning');
         
+        // Build error map
         for (const error of errorsOnly) {
             const file = error.file || 'entry.lua';
             
@@ -124,9 +128,33 @@ export class ErrorManager {
             this.errorsByFile.get(file).push({
                 line: error.line,
                 column: error.column,
-                message: error.message
+                message: error.message,
+                type: 'error'
             });
         }
+        
+        // Build warning map
+        for (const warning of warningsOnly) {
+            const file = warning.file || 'entry.lua';
+            
+            if (!this.warningsByFile.has(file)) {
+                this.warningsByFile.set(file, []);
+            }
+            
+            this.warningsByFile.get(file).push({
+                line: warning.line,
+                column: warning.column,
+                message: warning.message,
+                type: 'warning'
+            });
+        }
+    }
+    
+    /**
+     * Backward compatibility: parseErrors now calls parseIssues
+     */
+    parseErrors(stderr) {
+        this.parseIssues(stderr);
     }
     
     /**
@@ -142,6 +170,28 @@ export class ErrorManager {
     }
     
     /**
+     * Get warnings for a specific file (with path-aware matching)
+     */
+    getWarningsForFile(fileName) {
+        if (!fileName) return [];
+        
+        const warningFiles = Array.from(this.warningsByFile.keys());
+        const bestMatch = findBestPathMatch(fileName, warningFiles);
+        
+        return bestMatch ? [...this.warningsByFile.get(bestMatch)] : [];
+    }
+    
+    /**
+     * Get all issues (both errors and warnings) for a file
+     */
+    getIssuesForFile(fileName) {
+        return [
+            ...this.getErrorsForFile(fileName),
+            ...this.getWarningsForFile(fileName)
+        ];
+    }
+    
+    /**
      * Check if a file has errors
      */
     hasErrors(fileName) {
@@ -149,10 +199,41 @@ export class ErrorManager {
     }
     
     /**
+     * Check if a file has warnings
+     */
+    hasWarnings(fileName) {
+        return this.getWarningsForFile(fileName).length > 0;
+    }
+    
+    /**
+     * Check if a file has any issues (errors or warnings)
+     */
+    hasIssues(fileName) {
+        return this.hasErrors(fileName) || this.hasWarnings(fileName);
+    }
+    
+    /**
      * Get all files that have errors
      */
     getFilesWithErrors() {
         return Array.from(this.errorsByFile.keys());
+    }
+    
+    /**
+     * Get all files that have warnings
+     */
+    getFilesWithWarnings() {
+        return Array.from(this.warningsByFile.keys());
+    }
+    
+    /**
+     * Get all files with any issues
+     */
+    getFilesWithIssues() {
+        return Array.from(new Set([
+            ...this.getFilesWithErrors(),
+            ...this.getFilesWithWarnings()
+        ]));
     }
     
     /**
@@ -164,5 +245,23 @@ export class ErrorManager {
             count += errors.length;
         }
         return count;
+    }
+    
+    /**
+     * Get total warning count
+     */
+    getTotalWarningCount() {
+        let count = 0;
+        for (const warnings of this.warningsByFile.values()) {
+            count += warnings.length;
+        }
+        return count;
+    }
+    
+    /**
+     * Get total issue count
+     */
+    getTotalIssueCount() {
+        return this.getTotalErrorCount() + this.getTotalWarningCount();
     }
 }

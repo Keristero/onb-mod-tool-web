@@ -1,7 +1,7 @@
 // Main application entry point
 
 import * as parser from './parser.mjs';
-import { ErrorManager } from './tabs/error-manager.mjs';
+import { IssueManager } from './tabs/issue-manager.mjs';
 import { createDefaultRegistry } from './validation.mjs';
 import ResultsTab from './tabs/results-tab.mjs';
 import FileBrowserTab from './tabs/file-browser-tab.mjs';
@@ -330,10 +330,10 @@ class ModAnalyzer {
             };
             
             // Pre-parse errors once and cache on mod object
-            const errorManager = new ErrorManager();
+            const issueManager = new IssueManager();
             if (result.stderr) {
-                errorManager.parseErrors(result.stderr);
-                modData.errorsByFile = new Map(errorManager.errorsByFile);
+                issueManager.parseErrors(result.stderr);
+                modData.errorsByFile = new Map(issueManager.errorsByFile);
             } else {
                 modData.errorsByFile = new Map();
             }
@@ -354,35 +354,7 @@ class ModAnalyzer {
             // Separate warnings from errors in stderr
             const allErrors = modData.errors || [];
             const stderrErrors = allErrors.filter(e => e.type === 'error');
-            let stderrWarnings = allErrors.filter(e => e.type === 'warning');
-            
-            // Enhance warnings with file and line information from errorManager
-            stderrWarnings = stderrWarnings.map(warn => {
-                // Try to extract file and line info from the warning message
-                let file = 'entry.lua';
-                let line = null;
-                let column = null;
-                
-                // Look for line:column pattern at start of message
-                const locationMatch = warn.message.match(/^\[\s*(\d+)\s*:\s*(\d+)\s*\]/);
-                if (locationMatch) {
-                    line = parseInt(locationMatch[1]);
-                    column = parseInt(locationMatch[2]);
-                }
-                
-                // Try to extract filename from message (e.g., "filename.lua: message" or "in filename.lua:")
-                const fileMatch = warn.message.match(/(?:in|at|evaluating)\s+"([^"]+\.lua)"|^"([^"]+\.lua)"|(\w+[\w\-\.]*\.lua)/);
-                if (fileMatch) {
-                    file = fileMatch[1] || fileMatch[2] || fileMatch[3];
-                }
-                
-                return {
-                    ...warn,
-                    file: file,
-                    line: line,
-                    column: column
-                };
-            });
+            const stderrWarnings = allErrors.filter(e => e.type === 'warning');
             
             modData.errorCategories = {
                 validation: modData.validationErrors,

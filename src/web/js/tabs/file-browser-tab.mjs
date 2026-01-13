@@ -3,7 +3,7 @@
 import * as parser from '../parser.mjs';
 import BaseTab from './base-tab.mjs';
 import { FilePreviewMixin } from './file-preview-mixin.mjs';
-import { ErrorManager } from './error-manager.mjs';
+import { IssueManager } from './issue-manager.mjs';
 import { escapeHtml } from '../utils/html-utils.mjs';
 import { toggleClass } from '../utils/dom-helpers.mjs';
 import { LuaGlobalsHighlighter, loadVersionMetadata } from '../utils/lua-globals.mjs';
@@ -13,7 +13,8 @@ export default class FileBrowserTab extends BaseTab {
         super();
         Object.assign(this, FilePreviewMixin);
         this.selectedFile = null;
-        this.errorManager = new ErrorManager();
+        this.issueManager = new IssueManager();
+        this.warningsByFile = new Map(); // Add support for warnings
         this.luaGlobalsHighlighter = null;
         this.metadata = null;
         this.currentVersion = null;
@@ -76,11 +77,22 @@ export default class FileBrowserTab extends BaseTab {
     async onFileProcessed(mod) {
         await super.onFileProcessed(mod);
         
-        // Use pre-parsed errors from mod object
+        // Use pre-parsed errors and warnings from mod object
         if (mod.errorsByFile) {
-            this.errorManager.errorsByFile = new Map(mod.errorsByFile);
-            this.errorManager.rawStderr = mod.result?.stderr || '';
+            this.issueManager.errorsByFile = new Map(mod.errorsByFile);
+            this.issueManager.rawStderr = mod.result?.stderr || '';
         }
+        
+        // Populate warnings by file from errorCategories
+        this.warningsByFile.clear();
+        const warnings = mod.errorCategories?.warnings || [];
+        warnings.forEach(warn => {
+            const file = warn.file || 'entry.lua';
+            if (!this.warningsByFile.has(file)) {
+                this.warningsByFile.set(file, []);
+            }
+            this.warningsByFile.get(file).push(warn);
+        });
         
         // Clear previous file selection
         this.selectedFile = null;
@@ -94,11 +106,22 @@ export default class FileBrowserTab extends BaseTab {
     setCurrentMod(mod) {
         super.setCurrentMod(mod);
         
-        // Use pre-parsed errors from mod object
+        // Use pre-parsed errors and warnings from mod object
         if (mod?.errorsByFile) {
-            this.errorManager.errorsByFile = new Map(mod.errorsByFile);
-            this.errorManager.rawStderr = mod.result?.stderr || '';
+            this.issueManager.errorsByFile = new Map(mod.errorsByFile);
+            this.issueManager.rawStderr = mod.result?.stderr || '';
         }
+        
+        // Populate warnings by file from errorCategories
+        this.warningsByFile.clear();
+        const warnings = mod.errorCategories?.warnings || [];
+        warnings.forEach(warn => {
+            const file = warn.file || 'entry.lua';
+            if (!this.warningsByFile.has(file)) {
+                this.warningsByFile.set(file, []);
+            }
+            this.warningsByFile.get(file).push(warn);
+        });
         
         // Clear previous file selection
         this.selectedFile = null;
@@ -294,6 +317,7 @@ export default class FileBrowserTab extends BaseTab {
     async displayText(file, ext) {
         const content = await file.async('string');
         const errors = this.getErrorsForFile(this.selectedFile);
+        const warnings = this.getWarningsForFile(this.selectedFile);
         
         // Build error summary section
         let errorSummaryHtml = '';
@@ -307,8 +331,26 @@ export default class FileBrowserTab extends BaseTab {
             
             errorSummaryHtml = `
                 <div class="error-summary">
-                    <div class="error-summary-header">⚠️ ${errors.length} error${errors.length > 1 ? 's' : ''} in this file:</div>
+                    <div class="error-summary-header">❌ ${errors.length} error${errors.length > 1 ? 's' : ''} in this file:</div>
                     <div class="error-summary-list">${errorItems}</div>
+                </div>
+            `;
+        }
+        
+        // Build warning summary section
+        let warningSummaryHtml = '';
+        if (warnings.length > 0) {
+            const warningItems = warnings.map(w => 
+                `<div class="warning-item">
+                    <span class="warning-location">[${w.line}:${w.column}]</span>
+                    <span class="warning-message">${escapeHtml(w.message)}</span>
+                </div>`
+            ).join('');
+            
+            warningSummaryHtml = `
+                <div class="warning-summary">
+                    <div class="warning-summary-header">⚠️ ${warnings.length} warning${warnings.length > 1 ? 's' : ''} in this file:</div>
+                    <div class="warning-summary-list">${warningItems}</div>
                 </div>
             `;
         }
@@ -321,22 +363,33 @@ export default class FileBrowserTab extends BaseTab {
         let linesHtml = lines.map((line, index) => {
             const lineNum = index + 1;
             const lineErrors = errors.filter(e => e.line === lineNum);
+            const lineWarnings = warnings.filter(w => w.line === lineNum);
             const hasError = lineErrors.length > 0;
-            const errorClass = hasError ? 'error-line' : '';
+            const hasWarning = lineWarnings.length > 0;
+            const lineClasses = [
+                hasError ? 'error-line' : '',
+                hasWarning ? 'warning-line' : ''
+            ].filter(c => c).join(' ');
             
             // Apply syntax highlighting first
             let highlightedLine = this.syntaxHighlight(line, ext, this.metadata);
             
             // Then add column markers for each error on this line
             if (hasError) {
-                highlightedLine = this.highlightErrorColumns(line, highlightedLine, lineErrors);
+                highlightedLine = this.highlightErrorColumns(line, highlightedLine, lineErrors, 'error');
             }
             
-            return `<div class="code-line ${errorClass}" data-line="${lineNum}">${highlightedLine}</div>`;
+            // Then add column markers for each warning on this line
+            if (hasWarning) {
+                highlightedLine = this.highlightErrorColumns(line, highlightedLine, lineWarnings, 'warning');
+            }
+            
+            return `<div class="code-line ${lineClasses}" data-line="${lineNum}">${highlightedLine}</div>`;
         }).join('');
         
         this.setHTML('#file-preview', `
             ${errorSummaryHtml}
+            ${warningSummaryHtml}
             <div class="code-preview">
                 <div class="line-numbers">${lineNumbersHtml}</div>
                 <div class="code-content">${linesHtml}</div>
@@ -355,6 +408,11 @@ export default class FileBrowserTab extends BaseTab {
         if (errors.length > 0) {
             this.addErrorTooltips(errors);
         }
+
+        // Add warning tooltips
+        if (warnings.length > 0) {
+            this.addWarningTooltips(warnings);
+        }
     }
     
     /**
@@ -364,7 +422,7 @@ export default class FileBrowserTab extends BaseTab {
      * @param {Array} errors - Array of errors for this line
      * @returns {string} Line with error column markers
      */
-    highlightErrorColumns(originalLine, highlightedLine, errors) {
+    highlightErrorColumns(originalLine, highlightedLine, errors, type = 'error') {
         // Sort errors by column (descending) to insert markers from right to left
         const sortedErrors = [...errors].sort((a, b) => b.column - a.column);
         
@@ -375,6 +433,7 @@ export default class FileBrowserTab extends BaseTab {
         // We'll do this by finding the nth visible character in the HTML
         
         let result = highlightedLine;
+        const markerClass = type === 'warning' ? 'warning-column-marker' : 'error-column-marker';
         
         for (const error of sortedErrors) {
             const col = error.column - 1; // Convert to 0-based
@@ -386,9 +445,9 @@ export default class FileBrowserTab extends BaseTab {
             const htmlPosition = this.findHtmlPositionForColumn(highlightedLine, col);
             
             if (htmlPosition !== -1) {
-                // Insert error marker
+                // Insert error/warning marker
                 result = result.slice(0, htmlPosition) + 
-                        '<span class="error-column-marker"></span>' + 
+                        `<span class="${markerClass}"></span>` + 
                         result.slice(htmlPosition);
             }
         }
@@ -446,10 +505,30 @@ export default class FileBrowserTab extends BaseTab {
     }
     
     getErrorsForFile(path) {
-        // Use ErrorManager for centralized error retrieval
+        // Use IssueManager for centralized issue retrieval
         // Pass the full path to support proper path matching
         if (!path) return [];
-        return this.errorManager.getErrorsForFile(path);
+        return this.issueManager.getErrorsForFile(path);
+    }
+    
+    getWarningsForFile(path) {
+        // Get warnings for a specific file
+        if (!path) return [];
+        
+        // Try exact match first
+        if (this.warningsByFile.has(path)) {
+            return this.warningsByFile.get(path);
+        }
+        
+        // Try partial match (last component of path)
+        const fileName = path.split('/').pop();
+        for (const [file, warnings] of this.warningsByFile.entries()) {
+            if (file.endsWith(fileName) || file.endsWith(path)) {
+                return warnings;
+            }
+        }
+        
+        return [];
     }
     
     addErrorTooltips(errors) {
@@ -461,13 +540,22 @@ export default class FileBrowserTab extends BaseTab {
             }
         });
     }
-    
+
+    addWarningTooltips(warnings) {
+        warnings.forEach(warning => {
+            const line = this.container.querySelector(`.code-line[data-line="${warning.line}"]`);
+            if (line) {
+                line.title = warning.message;
+                line.style.cursor = 'help';
+            }
+        });
+    }
 
     
     clear() {
         super.clear();
         this.selectedFile = null;
-        this.errorManager.parseErrors(''); // Clear errors
+        this.issueManager.parseErrors(''); // Clear issues
         
         if (this.container) {
             this.setHTML('#file-tree', '<div class="empty-state">No files</div>');

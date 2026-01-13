@@ -274,9 +274,9 @@ export default class StatisticsTab extends BaseTab {
                 ${card('Total Analyzed', stats.total)}
                 ${card('Parse Success Rate', `${stats.successRate}%`, successRateColor)}
                 ${card('Validation Success Rate', `${stats.validationSuccessRate}%`, validationRateColor)}
-                ${card('Valid Mods with Warnings %', `${stats.validWithWarningsRate}%`, validWithWarningsRateColor)}
+                ${card('Mods with Warnings', `${stats.validWithWarningsRate}%`, validWithWarningsRateColor)}
                 ${card('Successful', stats.successful, 'var(--success-color)')}
-                ${card('Success with Warnings', stats.successWithWarnings || 0, 'var(--validation-warning-color)')}
+                ${card('with Warnings', stats.successWithWarnings || 0, 'var(--validation-warning-color)')}
                 ${card('Validation Failed', stats.validationFailed || 0, 'var(--warning-color)')}
                 ${card('Failed', stats.failed, 'var(--error-color)')}
                 ${card('Avg Processing Time', parser.formatDuration(stats.avgTime))}

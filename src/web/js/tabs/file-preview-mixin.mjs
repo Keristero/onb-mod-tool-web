@@ -354,18 +354,18 @@ export const FilePreviewMixin = {
      */
     /**
      * Extract errors for a specific file
-     * Delegates to ErrorManager if available, otherwise returns empty array
+     * Delegates to IssueManager if available, otherwise returns empty array
      * @param {string} fileName - The file to get errors for
      * @returns {Array} Array of error objects {line, column, message}
      */
     extractErrorsForFile(fileName) {
-        // Use ErrorManager if available (injected by tab)
-        if (this.errorManager) {
-            return this.errorManager.getErrorsForFile(fileName);
+        // Use IssueManager if available (injected by tab)
+        if (this.issueManager) {
+            return this.issueManager.getErrorsForFile(fileName);
         }
         
-        // Fallback: no errors if ErrorManager not available
-        console.warn('ErrorManager not available for FilePreviewMixin');
+        // Fallback: no errors if IssueManager not available
+        console.warn('IssueManager not available for FilePreviewMixin');
         return [];
     }
 

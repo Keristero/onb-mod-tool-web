@@ -137,42 +137,56 @@ export function cleanErrorMessage(message) {
  * @param {string} stderr - Raw stderr output from analysis
  * @returns {Array<{type: string, message: string, line: string, isContext: boolean}>} Array of classified errors/warnings
  */
+/**
+ * Comprehensive error and warning parser for stderr output
+ * Returns all errors and warnings with their metadata (type, file, line, column, message)
+ * 
+ * Handles:
+ * - WARN: [line:column] message
+ * - ERR: [line:column] message  
+ * - [line:column] message (without prefix - defaults to error)
+ * - Context lines: ... in "file.lua"
+ */
 export function extractErrors(stderr) {
     if (!stderr) return [];
     
-    const errors = [];
+    const items = [];
     const lines = stderr.split('\n');
     
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const trimmed = line.trim();
-        if (!trimmed) continue;
         
-        // Skip context lines (indented lines starting with "...")
-        // These provide stack trace info but aren't errors themselves
+        // Skip empty lines and summary lines
+        if (!trimmed || trimmed.startsWith('Errors while evaluating')) {
+            continue;
+        }
+        
+        // Skip context lines (will be attached to previous item)
         if (/^\s+\.\.\./.test(line)) {
             continue;
         }
         
-        // Skip summary lines
-        if (trimmed.startsWith('Errors while evaluating')) {
+        // Check if line starts with WARN: or ERR:
+        const isWarning = trimmed.startsWith('WARN:');
+        const isError = trimmed.startsWith('ERR:');
+        
+        // Also check if line has [line:column] format (error/warning without prefix)
+        // If it has location format but no ERR: prefix, treat as warning
+        const hasLocation = /^\[\s*\d+\s*:\s*\d+\s*\]/.test(trimmed);
+        const isPrefixedError = isError || trimmed.startsWith('ERR');
+        
+        // Skip lines that don't have any of these markers
+        if (!isWarning && !isPrefixedError && !hasLocation) {
             continue;
         }
         
-        // Everything else that's not empty is treated as an stderr error
-        // This includes:
-        // - ERR: prefixed errors
-        // - WARN: prefixed warnings
-        // - [line:column] location-based errors
-        // - Script missing: errors
-        // - Other runtime errors like "A programmer forgot..."
-        // - Function argument mismatches
-        // - Any other error messages
+        // Extract location [line:column] if present
+        const locationMatch = trimmed.match(/\[\s*(\d+)\s*:\s*(\d+)\s*\]/);
+        const lineNum = locationMatch ? parseInt(locationMatch[1]) : null;
+        const columnNum = locationMatch ? parseInt(locationMatch[2]) : null;
         
-        const isWarning = trimmed.startsWith('WARN:');
-        const errorType = isWarning ? 'warning' : 'error';
-        
-        // Remove WARN: or ERR: prefix if present
+        // Extract message (everything after WARN:/ERR: and location)
         let messageText = trimmed;
         if (trimmed.startsWith('WARN:')) {
             messageText = trimmed.substring(5).trim();
@@ -180,15 +194,29 @@ export function extractErrors(stderr) {
             messageText = trimmed.substring(4).trim();
         }
         
-        errors.push({
-            type: errorType,
+        // Look ahead for context line with file info
+        let contextFile = null;
+        if (i + 1 < lines.length) {
+            const nextLine = lines[i + 1].trim();
+            if (nextLine.startsWith('...')) {
+                const fileMatch = nextLine.match(/in\s+"([^"]+)"/);
+                if (fileMatch) {
+                    contextFile = fileMatch[1];
+                }
+            }
+        }
+        
+        items.push({
+            type: isWarning || (hasLocation && !isPrefixedError) ? 'warning' : 'error',
             message: messageText,
-            line: messageText,
+            line: lineNum,
+            column: columnNum,
+            file: contextFile || 'entry.lua',
             isContext: false
         });
     }
     
-    return errors;
+    return items;
 }
 
 /**

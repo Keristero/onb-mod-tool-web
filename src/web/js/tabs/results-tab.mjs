@@ -3,7 +3,7 @@
 import * as parser from '../parser.mjs';
 import BaseTab from './base-tab.mjs';
 import { FilePreviewMixin } from './file-preview-mixin.mjs';
-import { ErrorManager, findBestPathMatch } from './error-manager.mjs';
+import { IssueManager, findBestPathMatch } from './issue-manager.mjs';
 import { addClass } from '../utils/dom-helpers.mjs';
 import { escapeHtml } from '../utils/html-utils.mjs';
 
@@ -12,7 +12,7 @@ export default class ResultsTab extends BaseTab {
         super();
         // Mix in file preview functionality
         Object.assign(this, FilePreviewMixin);
-        this.errorManager = new ErrorManager();
+        this.issueManager = new IssueManager();
     }
     
     async init(container) {
@@ -30,6 +30,7 @@ export default class ResultsTab extends BaseTab {
                 <div class="results-content">
                     <div id="mod-summary" class="mod-summary"></div>
                     <div id="console-output" class="console-output"></div>
+                    <div id="warnings-output" class="warnings-output"></div>
                     <div id="json-view" class="json-tree"></div>
                 </div>
             </div>
@@ -46,8 +47,8 @@ export default class ResultsTab extends BaseTab {
         
         // Use pre-parsed errors from mod object
         if (mod.errorsByFile) {
-            this.errorManager.errorsByFile = new Map(mod.errorsByFile);
-            this.errorManager.rawStderr = mod.result?.stderr || '';
+            this.issueManager.errorsByFile = new Map(mod.errorsByFile);
+            this.issueManager.rawStderr = mod.result?.stderr || '';
         }
         
         // Re-render after zip is loaded to ensure hovers are set up
@@ -63,8 +64,8 @@ export default class ResultsTab extends BaseTab {
         
         // Use pre-parsed errors from mod object
         if (mod?.errorsByFile) {
-            this.errorManager.errorsByFile = new Map(mod.errorsByFile);
-            this.errorManager.rawStderr = mod.result?.stderr || '';
+            this.issueManager.errorsByFile = new Map(mod.errorsByFile);
+            this.issueManager.rawStderr = mod.result?.stderr || '';
         }
     }
     
@@ -83,6 +84,10 @@ export default class ResultsTab extends BaseTab {
         // Render console output second
         const consoleHtml = this.renderConsoleOutput(result);
         this.setHTML('#console-output', consoleHtml);
+        
+        // Render warnings display
+        const warningsHtml = this.renderWarningsDisplay();
+        this.setHTML('#warnings-output', warningsHtml);
         
         // Render JSON tree last
         const jsonHtml = this.renderJsonTree(result.data);
@@ -303,27 +308,16 @@ export default class ResultsTab extends BaseTab {
         const stdout = result.stdout || result.data?.stdout || '';
         const stderr = result.stderr || result.data?.stderr || '';
         const analyzerError = result.success === false && result.error ? result.error : '';
-        const hasOutput = stdout || stderr || analyzerError;
+        
+        // Count actual errors (excluding warnings)
+        const stderrErrors = this.currentMod?.errorCategories?.stderr || [];
+        const hasErrors = stderrErrors.length > 0;
+        
+        const hasOutput = stdout || hasErrors || analyzerError;
         
         if (!hasOutput) {
             return '';
         }
-        
-        // Separate warnings from errors, organized by file
-        const warningsByFile = this.groupWarningsByFile();
-        
-        const warningsSection = Object.keys(warningsByFile).length > 0 ? `
-            <div class="console-warnings-section">
-                ${Object.entries(warningsByFile).map(([file, warnings]) => `
-                    <div class="warnings-by-file">
-                        <h4 class="warnings-header">⚠️ ${warnings.length} warning${warnings.length !== 1 ? 's' : ''} in this file:</h4>
-                        <div class="warnings-list">
-                            ${warnings.map(warn => this.renderWarningItem(warn, file)).join('')}
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        ` : '';
         
         return `
             <div class="console-section">
@@ -340,13 +334,31 @@ export default class ResultsTab extends BaseTab {
                         <pre>${this.highlightConsoleOutput(stdout)}</pre>
                     </div>
                 ` : ''}
-                ${stderr ? `
+                ${hasErrors ? `
                     <div class="console-stderr">
                         <h4>Errors</h4>
                         <pre>${this.highlightConsoleOutput(stderr)}</pre>
                     </div>
                 ` : ''}
-                ${warningsSection}
+            </div>
+        `;
+    }
+    
+    renderWarningsDisplay() {
+        // Get all warnings
+        const warnings = this.currentMod?.errorCategories?.warnings || [];
+        
+        if (warnings.length === 0) {
+            return '';
+        }
+        
+        return `
+            <div class="warnings-display-section">
+                <h3>Warnings</h3>
+                <div class="warnings-container">
+                    <h4>⚠️ ${warnings.length} warning${warnings.length !== 1 ? 's' : ''}</h4>
+                    ${warnings.map(warn => this.renderWarningItem(warn, warn.file || 'entry.lua')).join('')}
+                </div>
             </div>
         `;
     }
@@ -367,14 +379,18 @@ export default class ResultsTab extends BaseTab {
     }
     
     renderWarningItem(warn, file) {
-        // If warning has a line number, make it previewable
-        if (warn.line) {
+        // Display the message with location data for hover preview
+        // Extract location from message if present (format: "[ 430:29 ] message...")
+        const locationMatch = warn.message?.match(/^\[\s*(\d+)\s*:\s*(\d+)\s*\]\s*(.*)/);
+        
+        if (locationMatch && warn.line) {
+            const [, line, column, message] = locationMatch;
             return `
                 <div class="warning-item">
                     <span class="warning-location" data-file="${escapeHtml(file)}" data-line="${warn.line}" data-column="${warn.column || 0}">
-                        [${warn.line}${warn.column ? ':' + warn.column : ''}]
+                        [${line}:${column}]
                     </span>
-                    <span class="warning-message">${escapeHtml(warn.message || '')}</span>
+                    <span class="warning-message">${escapeHtml(message)}</span>
                 </div>
             `;
         }
@@ -388,45 +404,88 @@ export default class ResultsTab extends BaseTab {
     }
     
     highlightConsoleOutput(text) {
-        // Parse with error manager (already done in onFileProcessed, but this ensures it's available)
-        if (!this.errorManager.rawStderr) {
-            this.errorManager.parseErrors(text);
-        }
-        
         const originalLines = text.split('\n');
         const escapedLines = originalLines.map(line => escapeHtml(line));
         const processedLines = [];
         
-        // Track which lines have error locations
-        const errorLineIndices = new Map(); // lineIndex -> {file, line, column}
+        // Track which lines to skip (warnings and their context lines)
+        const skipIndices = new Set();
         
+        // Get all warnings to exclude them from error display
+        const warnings = this.currentMod?.errorCategories?.warnings || [];
+        const warningLocations = new Set();
+        warnings.forEach(w => {
+            if (w.line && w.column) {
+                warningLocations.add(`${w.line}:${w.column}`);
+            }
+        });
+        
+        // Mark warning lines and their context lines for skipping
         for (let i = 0; i < originalLines.length; i++) {
-            const locationMatch = originalLines[i].match(/^\[\s*(\d+)\s*:\s*(\d+)\s*\]/);
+            const trimmed = originalLines[i].trim();
+            
+            // Skip warning lines (with WARN: prefix)
+            if (trimmed.startsWith('WARN:')) {
+                skipIndices.add(i);
+                // Also skip the next line if it's a context line
+                if (i + 1 < originalLines.length && originalLines[i + 1].trim().startsWith('...')) {
+                    skipIndices.add(i + 1);
+                }
+            }
+            
+            // Also skip lines that match warning locations
+            const locationMatch = trimmed.match(/^\[\s*(\d+)\s*:\s*(\d+)\s*\]/);
             if (locationMatch) {
-                // Get the file for this error from error manager
-                let errorFile = 'entry.lua';
-                
-                // Look ahead to find file mention
-                for (let j = i; j < Math.min(i + 5, originalLines.length); j++) {
-                    const fileMatch = originalLines[j].match(/"([\w\-\.\/\\]+\.lua)"/) ||
-                                     originalLines[j].match(/evaluating\s+([\w\-\.\/\\]+\.lua)/) ||
-                                     originalLines[j].match(/in\s+"([\w\-\.\/\\]+\.lua)"/);
-                    if (fileMatch) {
-                        errorFile = fileMatch[1].replace(/\\/g, '/');
-                        break;
+                const loc = `${locationMatch[1]}:${locationMatch[2]}`;
+                if (warningLocations.has(loc)) {
+                    skipIndices.add(i);
+                    // Also skip the next line if it's a context line
+                    if (i + 1 < originalLines.length && originalLines[i + 1].trim().startsWith('...')) {
+                        skipIndices.add(i + 1);
                     }
                 }
+            }
+        }
+        
+        // Track which lines have error locations (errors only, not warnings)
+        const errorLineIndices = new Map(); // lineIndex -> {file, line, column}
+        
+        // Use already-parsed data from modData.errors to find only actual errors
+        const errors = this.currentMod?.errors || [];
+        const actualErrors = errors.filter(e => e.type === 'error');
+        
+        // Find line indices for errors
+        for (let i = 0; i < originalLines.length; i++) {
+            // Skip warning lines
+            if (skipIndices.has(i)) {
+                continue;
+            }
+            
+            const trimmed = originalLines[i].trim();
+            const locationMatch = trimmed.match(/^\[\s*(\d+)\s*:\s*(\d+)\s*\]/);
+            if (locationMatch) {
+                const line = parseInt(locationMatch[1]);
+                const column = parseInt(locationMatch[2]);
                 
-                errorLineIndices.set(i, {
-                    file: errorFile,
-                    line: parseInt(locationMatch[1]),
-                    column: parseInt(locationMatch[2])
-                });
+                // Find the matching error from parsed data
+                const matchingError = actualErrors.find(e => e.line === line && e.column === column);
+                if (matchingError) {
+                    errorLineIndices.set(i, {
+                        file: matchingError.file,
+                        line: line,
+                        column: column
+                    });
+                }
             }
         }
         
         // Apply highlighting
         for (let i = 0; i < escapedLines.length; i++) {
+            // Skip warning lines and context lines
+            if (skipIndices.has(i)) {
+                continue;
+            }
+            
             let line = escapedLines[i];
             
             // Highlight file references
@@ -440,7 +499,7 @@ export default class ResultsTab extends BaseTab {
                 return `${prefix}<span class="console-file" data-file="${normalizedFile}">${file}</span>`;
             });
             
-            // Highlight error locations
+            // Highlight error locations only
             if (errorLineIndices.has(i)) {
                 const error = errorLineIndices.get(i);
                 line = line.replace(
@@ -597,12 +656,13 @@ export default class ResultsTab extends BaseTab {
                 e.preventDefault();
                 e.stopPropagation();
                 const fileName = e.target.dataset.file;
+                const lineNumber = e.target.dataset.line;
                 if (fileName) {
                     const zipFiles = Object.keys(this.zipArchive.files)
                         .filter(f => !f.endsWith('/'))
                         .map(f => f.replace(/^\/+/, ''));
                     const matchingFile = this.findMatchingZipFile(fileName, zipFiles);
-                    if (matchingFile) this.openInFileBrowser(matchingFile);
+                    if (matchingFile) this.openInFileBrowser(matchingFile, lineNumber);
                 }
             });
         });
@@ -618,12 +678,13 @@ export default class ResultsTab extends BaseTab {
                 e.preventDefault();
                 e.stopPropagation();
                 const fileName = e.target.dataset.file;
+                const lineNumber = e.target.dataset.line;
                 if (fileName) {
                     const zipFiles = Object.keys(this.zipArchive.files)
                         .filter(f => !f.endsWith('/'))
                         .map(f => f.replace(/^\/+/, ''));
                     const matchingFile = this.findMatchingZipFile(fileName, zipFiles);
-                    if (matchingFile) this.openInFileBrowser(matchingFile);
+                    if (matchingFile) this.openInFileBrowser(matchingFile, lineNumber);
                 }
             });
         });
@@ -681,7 +742,7 @@ export default class ResultsTab extends BaseTab {
         this.showTooltip(event.target, previewHtml);
     }
     
-    openInFileBrowser(filePath) {
+    openInFileBrowser(filePath, lineNumber = null) {
         // Switch to file browser tab
         const fileBrowserTab = document.querySelector('.tab[data-tab="files"]');
         if (fileBrowserTab) {
@@ -696,6 +757,21 @@ export default class ResultsTab extends BaseTab {
                     if (fileItem) {
                         fileItem.click();
                         fileItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        
+                        // If a line number was provided, scroll to that line
+                        if (lineNumber) {
+                            setTimeout(() => {
+                                const codeLine = fileBrowserContent.querySelector(`.code-line[data-line="${lineNumber}"]`);
+                                if (codeLine) {
+                                    codeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    // Highlight the line temporarily
+                                    codeLine.style.backgroundColor = 'rgba(255, 193, 7, 0.3)';
+                                    setTimeout(() => {
+                                        codeLine.style.backgroundColor = '';
+                                    }, 2000);
+                                }
+                            }, 200);
+                        }
                     }
                 }
             }, 100);
@@ -705,7 +781,7 @@ export default class ResultsTab extends BaseTab {
     clear() {
         super.clear();
         this.hidePreview();
-        this.errorManager.parseErrors(''); // Clear errors
+        this.issueManager.parseErrors(''); // Clear issues
         if (this.container) {
             this.setHTML('.results-content', '<div class="empty-state">No results</div>');
         }
