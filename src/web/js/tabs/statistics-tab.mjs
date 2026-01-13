@@ -175,6 +175,17 @@ export default class StatisticsTab extends BaseTab {
                 </div>
             ` : '';
         
+        // Helper to create expandable warning details
+        const warningDetails = (id, title, count, messages) => 
+            count > 0 ? `
+                <div class="chart-container full-width">
+                    <details id="${id}" open>
+                        <summary>${title} (${count})</summary>
+                        ${this.renderWarningMessagesChart(messages)}
+                    </details>
+                </div>
+            ` : '';
+        
         // Helper to render failed mods section
         const failedModsSection = () => 
             mode === 'session' && stats.failedMods?.length > 0 ? `
@@ -203,6 +214,7 @@ export default class StatisticsTab extends BaseTab {
                 ${chart(`Mod ${mode === 'file' ? 'Category' : 'Categories'}`, this.renderCategoriesChart(stats, mode))}
                 ${chart('Error Types', this.renderErrorTypesChart(stats), true)}
                 ${errorDetails('stderr-errors-details', 'Most Common Stderr Errors', stats.stderrErrors, stats.stderrMessages)}
+                ${warningDetails('warnings-details', 'Most Common Warnings', stats.totalWarnings, stats.warningMessages)}
                 ${errorDetails('validation-errors-details', 'Most Common Validation Errors', stats.validationErrors, stats.validationMessages)}
                 ${errorDetails('analyzer-errors-details', 'Most Common Analyzer Errors', stats.analyzerErrors, stats.analyzerMessages)}
                 ${mode === 'session' ? chart('Errors by File', this.renderErrorsByFileChart(stats), true) : ''}
@@ -233,6 +245,9 @@ export default class StatisticsTab extends BaseTab {
             } else if (stats.validationFailed === 1) {
                 statusText = 'Validation Failed';
                 statusColor = STATUS_COLORS.warning;
+            } else if (stats.successWithWarnings === 1) {
+                statusText = 'Success (with Warnings)';
+                statusColor = 'var(--validation-warning-color)';
             }
             
             return `
@@ -240,6 +255,7 @@ export default class StatisticsTab extends BaseTab {
                     ${card('Status', statusText, statusColor)}
                     ${card('Processing Time', parser.formatDuration(stats.avgTime))}
                     ${card('Total Errors', stats.totalErrors, 'var(--error-color)')}
+                    ${card('Total Warnings', stats.totalWarnings, 'var(--validation-warning-color)')}
                     ${card('Validation Errors', stats.validationErrors, 'var(--warning-color)')}
                     ${card('Analyzer Errors', stats.analyzerErrors, 'var(--error-color)')}
                     ${card('Stderr Errors', stats.stderrErrors, 'var(--error-color)')}
@@ -251,17 +267,21 @@ export default class StatisticsTab extends BaseTab {
         
         const successRateColor = stats.successRate > 80 ? 'var(--success-color)' : 'var(--warning-color)';
         const validationRateColor = stats.validationSuccessRate > 80 ? 'var(--success-color)' : 'var(--warning-color)';
+        const validWithWarningsRateColor = stats.validWithWarningsRate > 0 ? 'var(--validation-warning-color)' : 'var(--text-secondary)';
         
         return `
             <div class="stats-grid">
                 ${card('Total Analyzed', stats.total)}
                 ${card('Parse Success Rate', `${stats.successRate}%`, successRateColor)}
                 ${card('Validation Success Rate', `${stats.validationSuccessRate}%`, validationRateColor)}
+                ${card('Valid Mods with Warnings %', `${stats.validWithWarningsRate}%`, validWithWarningsRateColor)}
                 ${card('Successful', stats.successful, 'var(--success-color)')}
+                ${card('Success with Warnings', stats.successWithWarnings || 0, 'var(--validation-warning-color)')}
                 ${card('Validation Failed', stats.validationFailed || 0, 'var(--warning-color)')}
                 ${card('Failed', stats.failed, 'var(--error-color)')}
                 ${card('Avg Processing Time', parser.formatDuration(stats.avgTime))}
                 ${card('Total Errors', stats.totalErrors, 'var(--error-color)')}
+                ${card('Total Warnings', stats.totalWarnings || 0, 'var(--validation-warning-color)')}
                 ${card('Validation Errors', stats.validationErrors, 'var(--warning-color)')}
                 ${card('Analyzer Errors', stats.analyzerErrors, 'var(--error-color)')}
                 ${card('Stderr Errors', stats.stderrErrors, 'var(--error-color)')}
@@ -430,6 +450,27 @@ export default class StatisticsTab extends BaseTab {
         
         return createBarChart(items, {
             barColor: 'var(--warning-color)',
+            maxLabelLength: 80,
+            limit: 20
+        });
+    }
+    
+    renderWarningMessagesChart(warningMessages) {
+        if (!warningMessages || Object.keys(warningMessages).length === 0) {
+            return '<div class="empty-state">No warning messages recorded</div>';
+        }
+        
+        const sorted = Object.entries(warningMessages)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 20); // Show top 20 most common warnings
+        
+        const items = sorted.map(([message, count]) => ({
+            label: message,
+            value: count
+        }));
+        
+        return createBarChart(items, {
+            barColor: 'var(--validation-warning-color)',
             maxLabelLength: 80,
             limit: 20
         });

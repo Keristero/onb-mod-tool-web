@@ -106,9 +106,9 @@ export default class ResultsTab extends BaseTab {
         const parserErrorIssue = validationResult?.byField.get('errors')?.[0];
         const parserErrorCount = parserErrorIssue?.value || 0;
         
-        // Count warnings from stderr
-        const stderr = result.stderr || parsed.stderr || '';
-        const warnCount = stderr.split('\n').filter(l => l.trim().startsWith('WARN:')).length;
+        // Count warnings and errors from errorCategories
+        const warningCount = this.currentMod?.errorCategories?.warnings?.length || 0;
+        const errorCount = this.currentMod?.errorCategories?.stderr?.length || 0;
         
         // Get validation errors from currentMod
         const validationErrors = this.currentMod?.validationErrors || [];
@@ -123,6 +123,9 @@ export default class ResultsTab extends BaseTab {
         } else if (status === 'validation-failed') {
             statusText = 'Validation Failed';
             statusClass = 'warning';
+        } else if (status === 'success-with-warnings') {
+            statusText = 'Success (with Warnings)';
+            statusClass = 'success-with-warnings';
         }
         
         // Helper to check if field has validation error
@@ -175,7 +178,8 @@ export default class ResultsTab extends BaseTab {
                 ${renderSummaryItem('Game', parsed.game, 'game')}
                 ${renderSummaryItem('Version', parsed.version, 'version')}
                 ${renderSummaryItem('Category', parsed.category, 'category')}
-                ${renderSummaryItem('Errors', parserErrorCount, 'errors')}
+                ${renderSummaryItem('Errors', errorCount, 'errors')}
+                ${renderSummaryItem('Warnings', warningCount, 'warnings')}
             </div>
             ${validationErrorsSection}
         `;
@@ -305,6 +309,22 @@ export default class ResultsTab extends BaseTab {
             return '';
         }
         
+        // Separate warnings from errors, organized by file
+        const warningsByFile = this.groupWarningsByFile();
+        
+        const warningsSection = Object.keys(warningsByFile).length > 0 ? `
+            <div class="console-warnings-section">
+                ${Object.entries(warningsByFile).map(([file, warnings]) => `
+                    <div class="warnings-by-file">
+                        <h4 class="warnings-header">⚠️ ${warnings.length} warning${warnings.length !== 1 ? 's' : ''} in this file:</h4>
+                        <div class="warnings-list">
+                            ${warnings.map(warn => this.renderWarningItem(warn, file)).join('')}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        ` : '';
+        
         return `
             <div class="console-section">
                 <h3>Console Output</h3>
@@ -322,10 +342,47 @@ export default class ResultsTab extends BaseTab {
                 ` : ''}
                 ${stderr ? `
                     <div class="console-stderr">
-                        <h4>Standard Error</h4>
+                        <h4>Errors</h4>
                         <pre>${this.highlightConsoleOutput(stderr)}</pre>
                     </div>
                 ` : ''}
+                ${warningsSection}
+            </div>
+        `;
+    }
+    
+    groupWarningsByFile() {
+        const warnings = this.currentMod?.errorCategories?.warnings || [];
+        const grouped = {};
+        
+        warnings.forEach(warn => {
+            const file = warn.file || 'entry.lua';
+            if (!grouped[file]) {
+                grouped[file] = [];
+            }
+            grouped[file].push(warn);
+        });
+        
+        return grouped;
+    }
+    
+    renderWarningItem(warn, file) {
+        // If warning has a line number, make it previewable
+        if (warn.line) {
+            return `
+                <div class="warning-item">
+                    <span class="warning-location" data-file="${escapeHtml(file)}" data-line="${warn.line}" data-column="${warn.column || 0}">
+                        [${warn.line}${warn.column ? ':' + warn.column : ''}]
+                    </span>
+                    <span class="warning-message">${escapeHtml(warn.message || '')}</span>
+                </div>
+            `;
+        }
+        
+        // Otherwise just display the message
+        return `
+            <div class="warning-item">
+                <span class="warning-message">${escapeHtml(warn.message || '')}</span>
             </div>
         `;
     }
@@ -519,7 +576,6 @@ export default class ResultsTab extends BaseTab {
                 el.style.cursor = 'pointer';
                 el.title = 'Click to open in file browser, hover to preview with errors';
                 
-                // Show preview with errors when hovering
                 el.addEventListener('mouseenter', (e) => this.showFilePreview(e, true));
                 el.addEventListener('mouseleave', () => this.hidePreview());
                 el.addEventListener('click', (e) => {
@@ -536,6 +592,27 @@ export default class ResultsTab extends BaseTab {
             el.style.cursor = 'pointer';
             el.title = 'Click to open in file browser, hover to preview error location';
             el.addEventListener('mouseenter', (e) => this.showBracketErrorPreview(e));
+            el.addEventListener('mouseleave', () => this.hidePreview());
+            el.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const fileName = e.target.dataset.file;
+                if (fileName) {
+                    const zipFiles = Object.keys(this.zipArchive.files)
+                        .filter(f => !f.endsWith('/'))
+                        .map(f => f.replace(/^\/+/, ''));
+                    const matchingFile = this.findMatchingZipFile(fileName, zipFiles);
+                    if (matchingFile) this.openInFileBrowser(matchingFile);
+                }
+            });
+        });
+        
+        // Setup hover for warning locations [line:column] - show warning context with yellow highlight
+        const warningElements = this.querySelectorAll('.warning-location');
+        warningElements.forEach(el => {
+            el.style.cursor = 'pointer';
+            el.title = 'Click to open in file browser, hover to preview warning location';
+            el.addEventListener('mouseenter', (e) => this.showWarningPreview(e));
             el.addEventListener('mouseleave', () => this.hidePreview());
             el.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -576,6 +653,30 @@ export default class ResultsTab extends BaseTab {
         
         const ext = matchingFile.split('.').pop().toLowerCase();
         const previewHtml = await this.renderTextPreview(file, fileName, ext, line, column);
+        
+        this.showTooltip(event.target, previewHtml);
+    }
+    
+    async showWarningPreview(event) {
+        const fileName = event.target.dataset.file;
+        const line = parseInt(event.target.dataset.line);
+        const column = event.target.dataset.column ? parseInt(event.target.dataset.column) : null;
+        
+        if (!fileName || !line) return;
+        
+        // Find the file in zip - try to match it properly
+        const zipFiles = Object.keys(this.zipArchive.files)
+            .filter(f => !f.endsWith('/'))
+            .map(f => f.replace(/^\/+/, ''));
+        
+        const matchingFile = this.findMatchingZipFile(fileName, zipFiles);
+        if (!matchingFile) return;
+        
+        const file = this.zipArchive.files[matchingFile];
+        if (!file) return;
+        
+        const ext = matchingFile.split('.').pop().toLowerCase();
+        const previewHtml = await this.renderTextPreview(file, fileName, ext, line, column, 'warning');
         
         this.showTooltip(event.target, previewHtml);
     }

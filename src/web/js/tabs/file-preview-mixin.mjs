@@ -68,11 +68,11 @@ export const FilePreviewMixin = {
             <div class="file-preview-tooltip">
                 <div class="tooltip-header">${escapeHtml(fileName)}</div>
                 <div class="audio-preview-container">
-                    <audio controls autoplay style="width: 100%;">
+                    <audio controls style="width: 100%;">
                         <source src="${url}" type="audio/${ext}">
                         Your browser does not support the audio element.
                     </audio>
-                    <p style="margin-top: 0.5rem; font-size: 0.875rem; color: var(--text-secondary);">Audio will play automatically</p>
+                    <p style="margin-top: 0.5rem; font-size: 0.875rem; color: var(--text-secondary);">Click play to listen</p>
                 </div>
             </div>
         `;
@@ -97,7 +97,7 @@ export const FilePreviewMixin = {
     /**
      * Render text/code preview
      */
-    async renderTextPreview(file, fileName, ext, errorLine = null, errorColumn = null) {
+    async renderTextPreview(file, fileName, ext, errorLine = null, errorColumn = null, type = 'error') {
         const content = await file.async('string');
         const lines = content.split('\n');
         
@@ -107,12 +107,12 @@ export const FilePreviewMixin = {
             const startLine = Math.max(0, errorLine - 1 - contextLines);
             const endLine = Math.min(lines.length, errorLine + contextLines);
             const previewLines = lines.slice(startLine, endLine);
-            return this.renderCodePreview(previewLines, fileName, errorLine, errorColumn, startLine + 1);
+            return this.renderCodePreview(previewLines, fileName, errorLine, errorColumn, startLine + 1, type);
         } else {
             // Show first 20 lines for regular preview
             const maxLines = 20;
             const previewLines = lines.slice(0, maxLines);
-            return this.renderCodePreview(previewLines, fileName, null, null, 1);
+            return this.renderCodePreview(previewLines, fileName, null, null, 1, type);
         }
     },
     
@@ -146,25 +146,26 @@ export const FilePreviewMixin = {
     /**
      * Render code preview with line numbers and optional error highlighting
      */
-    renderCodePreview(lines, fileName, errorLine = null, errorColumn = null, startLineNum = 1) {
+    renderCodePreview(lines, fileName, errorLine = null, errorColumn = null, startLineNum = 1, type = 'error') {
         const lineNumbersHtml = lines.map((_, i) => 
             `<div class="line-number">${startLineNum + i}</div>`
         ).join('');
         
         const linesHtml = lines.map((line, i) => {
             const lineNum = startLineNum + i;
-            const isErrorLine = errorLine && lineNum === errorLine;
-            const errorClass = isErrorLine ? 'error-line' : '';
+            const isHighlightLine = errorLine && lineNum === errorLine;
+            const highlightClass = isHighlightLine ? (type === 'warning' ? 'warning-line' : 'error-line') : '';
             
             let lineContent = this.syntaxHighlight(line);
             
-            // Add character highlight if this is the error line and we have a column
-            if (isErrorLine && errorColumn && errorColumn > 0) {
-                const errors = [{ line: lineNum, column: errorColumn }];
-                lineContent = this.highlightErrorColumns(line, lineContent, errors);
+            // Add character highlight if this is the target line and we have a column
+            if (isHighlightLine && errorColumn && errorColumn > 0) {
+                const highlights = [{ line: lineNum, column: errorColumn }];
+                const highlightClass2 = type === 'warning' ? 'warning-highlight' : 'error-highlight';
+                lineContent = this.highlightErrorColumns(line, lineContent, highlights, highlightClass2);
             }
             
-            return `<div class="code-line ${errorClass}" data-line="${lineNum}">${lineContent}</div>`;
+            return `<div class="code-line ${highlightClass}" data-line="${lineNum}">${lineContent}</div>`;
         }).join('');
         
         return `
@@ -225,7 +226,7 @@ export const FilePreviewMixin = {
      * @param {Array} errors - Array of errors for this line
      * @returns {string} Line with error column markers
      */
-    highlightErrorColumns(originalLine, highlightedLine, errors) {
+    highlightErrorColumns(originalLine, highlightedLine, errors, highlightClass = 'error-column-marker') {
         // Sort errors by column (descending) to insert markers from right to left
         const sortedErrors = [...errors].sort((a, b) => b.column - a.column);
         
@@ -241,9 +242,9 @@ export const FilePreviewMixin = {
             const positions = this.findHtmlPositionForColumn(result, col);
             
             if (positions.start !== -1 && positions.end !== -1) {
-                // Wrap the character at this position with error marker
+                // Wrap the character at this position with marker
                 result = result.slice(0, positions.start) + 
-                        '<span class="error-column-marker">' + 
+                        `<span class="${highlightClass}">` + 
                         result.slice(positions.start, positions.end) + 
                         '</span>' + 
                         result.slice(positions.end);
@@ -329,6 +330,12 @@ export const FilePreviewMixin = {
      * Hide the current preview tooltip
      */
     hidePreview() {
+        // Clear any pending hide timer
+        if (this.hidePreviewTimer) {
+            clearTimeout(this.hidePreviewTimer);
+            this.hidePreviewTimer = null;
+        }
+        
         if (this.previewTooltip) {
             this.previewTooltip.remove();
             this.previewTooltip = null;

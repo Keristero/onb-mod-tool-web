@@ -19,7 +19,7 @@ function escapeCsvCell(cell) {
  * @returns {string} CSV formatted string
  */
 export function exportToCSV(stats, mods, mode) {
-    // Updated headers to include all 4 error categories
+    // Updated headers to include all 4 error categories and warnings
     const headers = [
         'Filename',
         'Status',
@@ -27,10 +27,12 @@ export function exportToCSV(stats, mods, mode) {
         'Validation Errors',
         'Analyzer Errors',
         'Stderr Errors',
+        'Warnings',
         'Other Errors',
         'Processing Time (ms)',
         'Size (bytes)',
         'Validation Error Details',
+        'Most Common Warning',
         'Timestamp'
     ];
     
@@ -39,12 +41,16 @@ export function exportToCSV(stats, mods, mode) {
         const validationErrors = mod.errorCategories?.validation?.length || 0;
         const analyzerErrors = mod.errorCategories?.analyzer?.length || 0;
         const stderrErrors = mod.errorCategories?.stderr?.length || 0;
+        const warnings = mod.errorCategories?.warnings?.length || 0;
         const otherErrors = mod.errorCategories?.other?.length || 0;
         
         // Detailed validation error messages
         const validationDetails = mod.errorCategories?.validation
             ?.map(e => `${e.field}: ${e.message}`)
             .join('; ') || '';
+        
+        // Get most common warning
+        const mostCommonWarning = mod.errorCategories?.warnings?.[0]?.message || '';
         
         return [
             mod.fileName,
@@ -53,10 +59,12 @@ export function exportToCSV(stats, mods, mode) {
             validationErrors,
             analyzerErrors,
             stderrErrors,
+            warnings,
             otherErrors,
             mod.processingTime || 0,
             mod.fileSize || 0,
             validationDetails,
+            mostCommonWarning,
             mod.timestamp || ''
         ];
     });
@@ -82,15 +90,19 @@ export function exportToXML(stats, mods, mode) {
     <summary>
         <total>${stats.total}</total>
         <successful>${stats.successful}</successful>
+        <successWithWarnings>${stats.successWithWarnings || 0}</successWithWarnings>
         <validationFailed>${stats.validationFailed || 0}</validationFailed>
         <failed>${stats.failed}</failed>
         <successRate>${stats.successRate}</successRate>
         <validationSuccessRate>${stats.validationSuccessRate}</validationSuccessRate>
+        <validWithWarningsRate>${stats.validWithWarningsRate || 0}</validWithWarningsRate>
         <avgProcessingTime>${stats.avgTime}</avgProcessingTime>
         <totalErrors>${stats.totalErrors}</totalErrors>
+        <totalWarnings>${stats.totalWarnings || 0}</totalWarnings>
         <validationErrors>${stats.validationErrors}</validationErrors>
         <analyzerErrors>${stats.analyzerErrors}</analyzerErrors>
         <stderrErrors>${stats.stderrErrors}</stderrErrors>
+        <stderrWarnings>${stats.stderrWarnings || 0}</stderrWarnings>
         <otherErrors>${stats.otherErrors}</otherErrors>
     </summary>
     <mods>
@@ -99,6 +111,7 @@ export function exportToXML(stats, mods, mode) {
             const validationErrors = mod.errorCategories?.validation || [];
             const analyzerErrors = mod.errorCategories?.analyzer || [];
             const stderrErrors = mod.errorCategories?.stderr || [];
+            const warnings = mod.errorCategories?.warnings || [];
             const otherErrors = mod.errorCategories?.other || [];
             
             return `
@@ -123,6 +136,11 @@ export function exportToXML(stats, mods, mode) {
                 <error>${escapeXml(e.message || e.line || '')}</error>
                 `).join('')}
             </stderrErrors>
+            <warnings count="${warnings.length}">
+                ${warnings.map(w => `
+                <warning>${escapeXml(w.message || w.line || '')}</warning>
+                `).join('')}
+            </warnings>
             <otherErrors count="${otherErrors.length}">
                 ${otherErrors.map(e => `
                 <error>${escapeXml(e.message || e.error || '')}</error>

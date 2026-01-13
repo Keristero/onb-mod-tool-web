@@ -130,7 +130,12 @@ export function cleanErrorMessage(message) {
 }
 
 /**
- * Extract error information from stderr
+ * Extract error and warning information from stderr
+ * Classifies messages as warnings (prefix "WARN:") or errors (prefix "ERR:" or other)
+ * Removes prefixes from messages for clean display
+ * 
+ * @param {string} stderr - Raw stderr output from analysis
+ * @returns {Array<{type: string, message: string, line: string, isContext: boolean}>} Array of classified errors/warnings
  */
 export function extractErrors(stderr) {
     if (!stderr) return [];
@@ -164,11 +169,21 @@ export function extractErrors(stderr) {
         // - Function argument mismatches
         // - Any other error messages
         
-        const errorType = line.startsWith('WARN:') ? 'warning' : 'error';
+        const isWarning = trimmed.startsWith('WARN:');
+        const errorType = isWarning ? 'warning' : 'error';
+        
+        // Remove WARN: or ERR: prefix if present
+        let messageText = trimmed;
+        if (trimmed.startsWith('WARN:')) {
+            messageText = trimmed.substring(5).trim();
+        } else if (trimmed.startsWith('ERR:')) {
+            messageText = trimmed.substring(4).trim();
+        }
+        
         errors.push({
             type: errorType,
-            message: trimmed,
-            line: trimmed,
+            message: messageText,
+            line: messageText,
             isContext: false
         });
     }

@@ -4,9 +4,12 @@ import * as parser from '../../parser.mjs';
 
 /**
  * Calculates comprehensive statistics for one or more mods
+ * Includes tracking of validation warnings as a distinct category from errors
+ * Tracks statistics including: successWithWarnings, totalWarnings, validWithWarningsRate
+ * 
  * @param {Object|Array<Object>} mods - Single mod object or array of mod objects
  * @param {Object} options - Calculation options (currently unused, reserved for future)
- * @returns {Object} Statistics object with aggregated data
+ * @returns {Object} Statistics object with aggregated data including warning metrics
  */
 export function calculateStatistics(mods, options = {}) {
     // Normalize input: ensure mods is always an array
@@ -14,6 +17,7 @@ export function calculateStatistics(mods, options = {}) {
     
     const total = modArray.length;
     const successful = modArray.filter(m => m.status === 'success').length;
+    const successWithWarnings = modArray.filter(m => m.status === 'success-with-warnings').length;
     const validationFailed = modArray.filter(m => m.status === 'validation-failed').length;
     const failed = modArray.filter(m => m.status === 'failed').length;
     
@@ -29,29 +33,36 @@ export function calculateStatistics(mods, options = {}) {
     const minTime = processingTimes.length > 0 ? Math.min(...processingTimes) : 0;
     const maxTime = processingTimes.length > 0 ? Math.max(...processingTimes) : 0;
     
-    // Initialize error tracking objects
+    // Initialize error and warning tracking objects
     const errorTypes = {};
     const stderrMessages = {};
     const validationMessages = {};
     const analyzerMessages = {};
+    const warningMessages = {};
+    const warningTypes = {};
     const errorsByFile = {};
     let totalValidationErrors = 0;
     let totalAnalyzerErrors = 0;
     let totalStderrErrors = 0;
     let totalOtherErrors = 0;
+    let totalWarnings = 0;
+    let totalStderrWarnings = 0;
     
-    // Aggregate error data from all mods
+    // Aggregate error and warning data from all mods
     modArray.forEach(mod => {
         // Use pre-categorized errors (from refactor-tab-rendering-architecture)
         const valErrors = mod.errorCategories?.validation?.length || 0;
         const analErrors = mod.errorCategories?.analyzer?.length || 0;
         const stderrErrs = mod.errorCategories?.stderr?.length || 0;
         const othErrors = mod.errorCategories?.other?.length || 0;
+        const stderrWarns = mod.errorCategories?.warnings?.length || 0;
         
         totalValidationErrors += valErrors;
         totalAnalyzerErrors += analErrors;
         totalStderrErrors += stderrErrs;
         totalOtherErrors += othErrors;
+        totalWarnings += stderrWarns;
+        totalStderrWarnings += stderrWarns;
         
         // Track error type counts
         if (valErrors > 0) {
@@ -66,6 +77,11 @@ export function calculateStatistics(mods, options = {}) {
         }
         if (othErrors > 0) {
             errorTypes['Other Errors'] = (errorTypes['Other Errors'] || 0) + othErrors;
+        }
+        
+        // Track warning type counts
+        if (stderrWarns > 0) {
+            warningTypes['Warnings'] = (warningTypes['Warnings'] || 0) + stderrWarns;
         }
         
         // Track validation error messages with occurrence counts
@@ -84,6 +100,19 @@ export function calculateStatistics(mods, options = {}) {
                     const cleanMsg = parser.cleanErrorMessage(msg);
                     if (cleanMsg) {
                         stderrMessages[cleanMsg] = (stderrMessages[cleanMsg] || 0) + 1;
+                    }
+                }
+            });
+        }
+        
+        // Track stderr warning messages with occurrence counts
+        if (mod.errorCategories?.warnings) {
+            mod.errorCategories.warnings.forEach(warning => {
+                const msg = warning.message || warning.line || '';
+                if (msg) {
+                    const cleanMsg = parser.cleanErrorMessage(msg);
+                    if (cleanMsg) {
+                        warningMessages[cleanMsg] = (warningMessages[cleanMsg] || 0) + 1;
                     }
                 }
             });
@@ -114,9 +143,14 @@ export function calculateStatistics(mods, options = {}) {
     const limitedStderrMessages = limitMessages(stderrMessages);
     const limitedValidationMessages = limitMessages(validationMessages);
     const limitedAnalyzerMessages = limitMessages(analyzerMessages);
+    const limitedWarningMessages = limitMessages(warningMessages);
     
     // Calculate total errors
     const totalErrors = totalValidationErrors + totalAnalyzerErrors + totalStderrErrors + totalOtherErrors;
+    
+    // Calculate valid mods (successful + success-with-warnings)
+    const validMods = successful + successWithWarnings;
+    const validWithWarningsRate = total > 0 ? (validMods / total * 100).toFixed(1) : 0;
     
     // Category breakdown
     const categories = {};
@@ -138,10 +172,12 @@ export function calculateStatistics(mods, options = {}) {
     return {
         total,
         successful,
+        successWithWarnings,
         validationFailed,
         failed,
         successRate: total > 0 ? ((successful + validationFailed) / total * 100).toFixed(1) : 0,
         validationSuccessRate: total > 0 ? (successful / total * 100).toFixed(1) : 0,
+        validWithWarningsRate,
         avgTime,
         minTime,
         maxTime,
@@ -149,12 +185,16 @@ export function calculateStatistics(mods, options = {}) {
         stderrMessages: limitedStderrMessages,
         validationMessages: limitedValidationMessages,
         analyzerMessages: limitedAnalyzerMessages,
+        warningMessages: limitedWarningMessages,
+        warningTypes,
         errorsByFile,
         categories,
         totalErrors,
+        totalWarnings,
         validationErrors: totalValidationErrors,
         analyzerErrors: totalAnalyzerErrors,
         stderrErrors: totalStderrErrors,
+        stderrWarnings: totalStderrWarnings,
         otherErrors: totalOtherErrors,
         failedMods
     };

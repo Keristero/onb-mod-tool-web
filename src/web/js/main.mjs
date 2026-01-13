@@ -341,23 +341,6 @@ class ModAnalyzer {
             // Run validation once using validation registry
             modData.validationResult = this.validationRegistry.validate(modData);
             
-            // Derive status from validation result
-            const hasAnalyzerError = modData.validationResult.byField.has('analyzer');
-            const hasParserError = hasAnalyzerError; // Analyzer errors include parser failures
-            
-            if (hasParserError) {
-                modData.status = 'failed';
-                // Set error message from analyzer validation
-                const analyzerIssues = modData.validationResult.byField.get('analyzer');
-                if (analyzerIssues && analyzerIssues.length > 0 && !modData.error) {
-                    modData.error = analyzerIssues[0].message;
-                }
-            } else if (modData.validationResult.hasErrors()) {
-                modData.status = 'validation-failed';
-            } else {
-                modData.status = 'success';
-            }
-            
             // Backward compatibility: maintain old validationErrors format
             // Include all validation errors except analyzer errors (which are shown separately)
             modData.validationErrors = modData.validationResult.bySeverity.error
@@ -368,12 +351,69 @@ class ModAnalyzer {
                 }));
             
             // Derive error categories from validation result
+            // Separate warnings from errors in stderr
+            const allErrors = modData.errors || [];
+            const stderrErrors = allErrors.filter(e => e.type === 'error');
+            let stderrWarnings = allErrors.filter(e => e.type === 'warning');
+            
+            // Enhance warnings with file and line information from errorManager
+            stderrWarnings = stderrWarnings.map(warn => {
+                // Try to extract file and line info from the warning message
+                let file = 'entry.lua';
+                let line = null;
+                let column = null;
+                
+                // Look for line:column pattern at start of message
+                const locationMatch = warn.message.match(/^\[\s*(\d+)\s*:\s*(\d+)\s*\]/);
+                if (locationMatch) {
+                    line = parseInt(locationMatch[1]);
+                    column = parseInt(locationMatch[2]);
+                }
+                
+                // Try to extract filename from message (e.g., "filename.lua: message" or "in filename.lua:")
+                const fileMatch = warn.message.match(/(?:in|at|evaluating)\s+"([^"]+\.lua)"|^"([^"]+\.lua)"|(\w+[\w\-\.]*\.lua)/);
+                if (fileMatch) {
+                    file = fileMatch[1] || fileMatch[2] || fileMatch[3];
+                }
+                
+                return {
+                    ...warn,
+                    file: file,
+                    line: line,
+                    column: column
+                };
+            });
+            
             modData.errorCategories = {
                 validation: modData.validationErrors,
                 analyzer: modData.validationResult.byField.get('analyzer') || [],
-                stderr: modData.errors || [],
+                stderr: stderrErrors,
+                warnings: stderrWarnings,
                 other: []
             };
+            
+            // Derive status from validation result
+            // Status priority: parser errors > validation errors > warnings only > clean
+            // Warnings (WARN: prefix) are distinguished from errors (ERR: prefix) in parser phase
+            const hasAnalyzerError = modData.validationResult.byField.has('analyzer');
+            const hasParserError = hasAnalyzerError; // Analyzer errors include parser failures
+            const hasWarnings = modData.errorCategories.warnings && modData.errorCategories.warnings.length > 0;
+            
+            if (hasParserError) {
+                modData.status = 'failed';
+                // Set error message from analyzer validation
+                const analyzerIssues = modData.validationResult.byField.get('analyzer');
+                if (analyzerIssues && analyzerIssues.length > 0 && !modData.error) {
+                    modData.error = analyzerIssues[0].message;
+                }
+            } else if (modData.validationResult.hasErrors()) {
+                modData.status = 'validation-failed';
+            } else if (hasWarnings) {
+                // No errors, but warnings exist - mod passes validation with warnings
+                modData.status = 'success-with-warnings';
+            } else {
+                modData.status = 'success';
+            }
             
             // Mark as validated
             modData.validationComplete = true;
@@ -442,6 +482,7 @@ class ModAnalyzer {
                 validation: [],
                 analyzer: modData.validationResult.byField.get('analyzer') || [],
                 stderr: [],
+                warnings: [],
                 other: []
             };
             modData.validationComplete = true;
