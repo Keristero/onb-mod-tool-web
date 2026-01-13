@@ -209,7 +209,7 @@ export default class StatisticsTab extends BaseTab {
             
             <div class="stats-charts">
                 ${chart('Success Rate', this.renderSuccessRateChart(stats))}
-                ${chart('Error Distribution', this.renderErrorDistributionChart(stats))}
+                ${chart('Issue Distribution', this.renderErrorDistributionChart(stats))}
                 ${chart(`Processing Time ${mode === 'file' ? '' : 'Distribution'}`, this.renderProcessingTimeChart(stats))}
                 ${chart(`Mod ${mode === 'file' ? 'Category' : 'Categories'}`, this.renderCategoriesChart(stats, mode))}
                 ${chart('Error Types', this.renderErrorTypesChart(stats), true)}
@@ -267,16 +267,16 @@ export default class StatisticsTab extends BaseTab {
         
         const successRateColor = stats.successRate > 80 ? 'var(--success-color)' : 'var(--warning-color)';
         const validationRateColor = stats.validationSuccessRate > 80 ? 'var(--success-color)' : 'var(--warning-color)';
-        const validWithWarningsRateColor = stats.validWithWarningsRate > 0 ? 'var(--validation-warning-color)' : 'var(--text-secondary)';
+        const modsWithWarningsRateColor = stats.modsWithWarningsRate > 0 ? 'var(--validation-warning-color)' : 'var(--text-secondary)';
         
         return `
             <div class="stats-grid">
                 ${card('Total Analyzed', stats.total)}
                 ${card('Parse Success Rate', `${stats.successRate}%`, successRateColor)}
                 ${card('Validation Success Rate', `${stats.validationSuccessRate}%`, validationRateColor)}
-                ${card('Mods with Warnings', `${stats.validWithWarningsRate}%`, validWithWarningsRateColor)}
+                ${card('Mods with Warnings', `${stats.modsWithWarningsRate}%`, modsWithWarningsRateColor)}
                 ${card('Successful', stats.successful, 'var(--success-color)')}
-                ${card('with Warnings', stats.successWithWarnings || 0, 'var(--validation-warning-color)')}
+                ${card('Successful With Warnings', stats.successWithWarnings || 0, 'var(--validation-warning-color)')}
                 ${card('Validation Failed', stats.validationFailed || 0, 'var(--warning-color)')}
                 ${card('Failed', stats.failed, 'var(--error-color)')}
                 ${card('Avg Processing Time', parser.formatDuration(stats.avgTime))}
@@ -358,10 +358,11 @@ export default class StatisticsTab extends BaseTab {
         const analyzerErrors = stats.analyzerErrors || 0;
         const stderrErrors = stats.stderrErrors || 0;
         const otherErrors = stats.otherErrors || 0;
-        const totalErrors = validationErrors + analyzerErrors + stderrErrors + otherErrors;
+        const warnings = stats.totalWarnings || 0;
+        const totalIssues = validationErrors + analyzerErrors + stderrErrors + otherErrors + warnings;
         
-        if (totalErrors === 0) {
-            return '<div class="empty-state">No errors recorded</div>';
+        if (totalIssues === 0) {
+            return '<div class="empty-state">No issues recorded</div>';
         }
         
         // Prepare segments for pie chart
@@ -369,7 +370,7 @@ export default class StatisticsTab extends BaseTab {
         
         if (validationErrors > 0) {
             segments.push({
-                label: 'Validation',
+                label: 'Validation Errors',
                 value: validationErrors,
                 color: ERROR_COLORS.validation
             });
@@ -377,7 +378,7 @@ export default class StatisticsTab extends BaseTab {
         
         if (analyzerErrors > 0) {
             segments.push({
-                label: 'Analyzer',
+                label: 'Analyzer Errors',
                 value: analyzerErrors,
                 color: ERROR_COLORS.analyzer
             });
@@ -385,7 +386,7 @@ export default class StatisticsTab extends BaseTab {
         
         if (stderrErrors > 0) {
             segments.push({
-                label: 'Stderr',
+                label: 'Stderr Errors',
                 value: stderrErrors,
                 color: ERROR_COLORS.stderr
             });
@@ -393,9 +394,17 @@ export default class StatisticsTab extends BaseTab {
         
         if (otherErrors > 0) {
             segments.push({
-                label: 'Other',
+                label: 'Other Errors',
                 value: otherErrors,
                 color: ERROR_COLORS.other
+            });
+        }
+        
+        if (warnings > 0) {
+            segments.push({
+                label: 'Warnings',
+                value: warnings,
+                color: 'var(--validation-warning-color)'
             });
         }
         

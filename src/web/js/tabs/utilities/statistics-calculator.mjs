@@ -148,9 +148,8 @@ export function calculateStatistics(mods, options = {}) {
     // Calculate total errors
     const totalErrors = totalValidationErrors + totalAnalyzerErrors + totalStderrErrors + totalOtherErrors;
     
-    // Calculate valid mods (successful + success-with-warnings)
-    const validMods = successful + successWithWarnings;
-    const validWithWarningsRate = total > 0 ? (validMods / total * 100).toFixed(1) : 0;
+    // Calculate mods with warnings percentage
+    const modsWithWarningsRate = total > 0 ? (successWithWarnings / total * 100).toFixed(1) : 0;
     
     // Category breakdown
     const categories = {};
@@ -177,7 +176,7 @@ export function calculateStatistics(mods, options = {}) {
         failed,
         successRate: total > 0 ? ((successful + successWithWarnings) / total * 100).toFixed(1) : 0,
         validationSuccessRate: total > 0 ? ((successful + successWithWarnings) / total * 100).toFixed(1) : 0,
-        validWithWarningsRate,
+        modsWithWarningsRate,
         avgTime,
         minTime,
         maxTime,
