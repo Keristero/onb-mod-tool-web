@@ -1,7 +1,18 @@
 [
   {
-    "version": "v1.0.7",
+    "version": "v1.0.8",
     "latest": true,
+    "buildDate": "2026-01-13T04:19:35Z",
+    "features": [
+      "mod-analysis",
+      "lua-parsing",
+      "json-output"
+    ],
+    "description": "Production release v1.0.8"
+  },
+  {
+    "version": "v1.0.7",
+    "latest": false,
     "buildDate": "2026-01-10T16:37:58Z",
     "features": [
       "mod-analysis",
