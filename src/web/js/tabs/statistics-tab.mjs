@@ -1217,12 +1217,47 @@ export default class StatisticsTab extends BaseTab {
         if (!fileInfo) return '';
         
         const basename = fileInfo.locations[0].filePath.split('/').pop();
-        const locationsList = fileInfo.locations.map(loc => `
-            <li class="location-item">
-                <span class="mod-name" data-mod-id="${loc.modId}" title="Click to select this mod">${escapeHtml(loc.modName)}</span>
-                <span class="file-path" title="${escapeHtml(loc.filePath)}">${escapeHtml(loc.filePath)}</span>
-            </li>
-        `).join('');
+        
+        // Sort locations by date (earliest first), then by mod name
+        // Use the newer of modDate or fileDate for sorting and display
+        const sortedLocations = [...fileInfo.locations].sort((a, b) => {
+            const dateA = (a.fileDate && a.modDate && a.fileDate > a.modDate) ? a.fileDate : a.modDate;
+            const dateB = (b.fileDate && b.modDate && b.fileDate > b.modDate) ? b.fileDate : b.modDate;
+            
+            // Both have dates - compare them
+            if (dateA && dateB) {
+                return dateA - dateB;
+            }
+            // a has date, b doesn't - a comes first
+            if (dateA && !dateB) return -1;
+            // b has date, a doesn't - b comes first
+            if (!dateA && dateB) return 1;
+            // Neither has date - sort by mod name
+            return a.modName.localeCompare(b.modName);
+        });
+        
+        const locationsList = sortedLocations.map(loc => {
+            let dateInfo = '';
+            // Use the newer of fileDate or modDate for display
+            const displayDate = (loc.fileDate && loc.modDate && loc.fileDate > loc.modDate) ? loc.fileDate : loc.modDate;
+            
+            if (displayDate) {
+                const dateStr = displayDate.toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric' 
+                });
+                dateInfo = `<span class="location-date">${dateStr}</span>`;
+            }
+            
+            return `
+                <li class="location-item">
+                    <span class="mod-name" data-mod-id="${loc.modId}" title="Click to select this mod">${escapeHtml(loc.modName)}</span>
+                    ${dateInfo}
+                    <span class="file-path" title="${escapeHtml(loc.filePath)}">${escapeHtml(loc.filePath)}</span>
+                </li>
+            `;
+        }).join('');
         
         return `
             <div class="drill-down-panel">
@@ -1238,7 +1273,7 @@ export default class StatisticsTab extends BaseTab {
                         <div><strong>Occurrences:</strong> ${fileInfo.locations.length}</div>
                     </div>
                     <div class="locations">
-                        <h4>Found in these mods:</h4>
+                        <h4>Found in these mods (chronologically):</h4>
                         <ul class="locations-list">
                             ${locationsList}
                         </ul>

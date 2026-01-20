@@ -23,13 +23,31 @@ export class DuplicationTracker {
    * @param {string} filePath - Path within the mod zip
    * @param {string} hash - SHA-256 hash of file content
    * @param {number} size - File size in bytes
+   * @param {Date|null} modDate - Mod creation date (from entry.lua)
+   * @param {Date|null} fileDate - Individual file date (from zip entry)
    */
-  registerFile(modId, modName, filePath, hash, size) {
+  registerFile(modId, modName, filePath, hash, size, modDate = null, fileDate = null) {
     if (!hash || typeof hash !== 'string') {
       throw new Error('Invalid hash provided');
     }
 
-    const location = { modId, modName, filePath };
+    // Validate dates (must be after 2018 and not in the future)
+    const minValidDate = new Date('2018-01-01');
+    const maxValidDate = new Date();
+    const isValidModDate = modDate instanceof Date && 
+                           modDate > minValidDate && 
+                           modDate <= maxValidDate;
+    const isValidFileDate = fileDate instanceof Date && 
+                            fileDate > minValidDate && 
+                            fileDate <= maxValidDate;
+
+    const location = { 
+      modId, 
+      modName, 
+      filePath,
+      modDate: isValidModDate ? modDate : null,
+      fileDate: isValidFileDate ? fileDate : null
+    };
 
     if (this.fileRegistry.has(hash)) {
       // File already seen - add location if not duplicate

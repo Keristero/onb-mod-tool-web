@@ -584,12 +584,22 @@ class ModAnalyzer {
             
             if (!zipArchive) return;
             
+            // Extract mod creation date from entry.lua timestamp
+            let modDate = null;
+            const entryLua = zipArchive.file('entry.lua');
+            if (entryLua && entryLua.date) {
+                modDate = entryLua.date;
+            }
+            
             // Process all files in the zip
             const filePromises = [];
             
             zipArchive.forEach((relativePath, zipEntry) => {
                 // Skip directories
                 if (zipEntry.dir) return;
+                
+                // Extract individual file date from zip entry
+                const fileDate = zipEntry.date || null;
                 
                 // Queue file processing
                 filePromises.push(
@@ -602,7 +612,9 @@ class ModAnalyzer {
                                     modName,
                                     relativePath,
                                     hash,
-                                    fileData.length
+                                    fileData.length,
+                                    modDate,  // Mod creation date from entry.lua
+                                    fileDate  // Individual file date from zip entry
                                 );
                             } catch (error) {
                                 console.warn(`Failed to hash file ${relativePath}:`, error);

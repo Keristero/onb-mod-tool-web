@@ -2336,6 +2336,19 @@ span[data-onb-type]:hover {
     font-size: 0.875rem;
 }
 
+.origin-info {
+    grid-column: 1 / -1;
+    padding: 0.75rem;
+    background: rgba(76, 175, 80, 0.1);
+    border-left: 3px solid var(--success-color);
+    border-radius: 4px;
+    margin-top: 0.5rem;
+}
+
+.origin-info strong {
+    color: var(--success-color);
+}
+
 .locations h4 {
     margin-bottom: 0.75rem;
     color: var(--text-color);
@@ -2369,6 +2382,12 @@ span[data-onb-type]:hover {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.location-item .location-date {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    font-style: italic;
 }
 
 .location-item .mod-name:hover {
