@@ -154,3 +154,83 @@ export function exportToXML(stats, mods, mode) {
     
     return xml;
 }
+
+/**
+ * Exports duplication data to CSV format
+ * @param {DuplicationTracker} tracker - DuplicationTracker instance
+ * @returns {string} CSV formatted string
+ */
+export function exportDuplicationCSV(tracker) {
+    const headers = [
+        'File Path',
+        'Hash',
+        'Size (bytes)',
+        'Occurrences',
+        'Total Impact (bytes)',
+        'Mods'
+    ];
+    
+    const duplicatedFiles = tracker.getDuplicatedFiles('impact');
+    
+    const rows = duplicatedFiles.map(fileInfo => {
+        const filePath = fileInfo.locations[0].filePath;
+        const hash = fileInfo.hash;
+        const size = fileInfo.size;
+        const occurrences = fileInfo.locations.length;
+        const totalImpact = size * occurrences;
+        const modList = fileInfo.locations.map(loc => loc.modName).join(', ');
+        
+        return [
+            escapeCsvCell(filePath),
+            escapeCsvCell(hash),
+            size,
+            occurrences,
+            totalImpact,
+            escapeCsvCell(modList)
+        ].join(',');
+    });
+    
+    return [headers.join(','), ...rows].join('\n');
+}
+
+/**
+ * Exports duplication data to XML format
+ * @param {DuplicationTracker} tracker - DuplicationTracker instance
+ * @returns {string} XML formatted string
+ */
+export function exportDuplicationXML(tracker) {
+    const metrics = tracker.getMetrics();
+    const duplicatedFiles = tracker.getDuplicatedFiles('impact');
+    
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<duplicationReport>
+    <summary>
+        <totalDuplicatedBytes>${metrics.totalDuplicatedBytes}</totalDuplicatedBytes>
+        <potentialSavings>${metrics.potentialSavings}</potentialSavings>
+        <duplicationRate>${metrics.duplicationRate.toFixed(2)}%</duplicationRate>
+        <uniqueFiles>${metrics.uniqueFiles}</uniqueFiles>
+        <duplicatedFiles>${metrics.duplicatedFiles}</duplicatedFiles>
+    </summary>
+    <files>
+        ${duplicatedFiles.map(fileInfo => `
+        <file>
+            <path>${escapeXml(fileInfo.locations[0].filePath)}</path>
+            <hash>${escapeXml(fileInfo.hash)}</hash>
+            <size>${fileInfo.size}</size>
+            <occurrences>${fileInfo.locations.length}</occurrences>
+            <totalImpact>${fileInfo.size * fileInfo.locations.length}</totalImpact>
+            <locations>
+                ${fileInfo.locations.map(loc => `
+                <location>
+                    <mod>${escapeXml(loc.modName)}</mod>
+                    <path>${escapeXml(loc.filePath)}</path>
+                </location>
+                `).join('')}
+            </locations>
+        </file>
+        `).join('')}
+    </files>
+</duplicationReport>`;
+    
+    return xml;
+}

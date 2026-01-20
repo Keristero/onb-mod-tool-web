@@ -9,6 +9,8 @@ import StatisticsTab from './tabs/statistics-tab.mjs';
 import DependenciesTab from './tabs/dependencies-tab.mjs';
 import { addClass, removeClass, toggleClass } from './utils/dom-helpers.mjs';
 import { createElement } from './utils/html-utils.mjs';
+import { DuplicationTracker } from './duplication-tracker.mjs';
+import { computeHash } from './utils/hash-utils.mjs';
 
 class ModAnalyzer {
     constructor() {
@@ -26,11 +28,14 @@ class ModAnalyzer {
         // Validation registry
         this.validationRegistry = createDefaultRegistry();
         
+        // Duplication tracker
+        this.duplicationTracker = new DuplicationTracker();
+        
         // Tab modules
         this.tabs = {
             results: new ResultsTab(),
             files: new FileBrowserTab(),
-            statistics: new StatisticsTab(),
+            statistics: new StatisticsTab(this.duplicationTracker),
             dependencies: new DependenciesTab(this) // Pass app reference
         };
         
@@ -547,6 +552,12 @@ class ModAnalyzer {
                 promises.push(tab.onFileProcessed(mod));
             }
             await Promise.all(promises);
+            
+            // Hash files for duplication tracking (after zip is loaded)
+            if (mod.zipArchive) {
+                await this.hashModFiles(mod);
+            }
+            
             mod.tabsInitialized = true;
         } else {
             // Mod already loaded - just update the current mod reference (lightweight)
@@ -563,6 +574,49 @@ class ModAnalyzer {
         }
         
         // Don't render inactive tabs - they will render when switched to
+    }
+    
+    async hashModFiles(mod) {
+        try {
+            const modId = mod.id;
+            const modName = mod.fileName;
+            const zipArchive = mod.zipArchive;
+            
+            if (!zipArchive) return;
+            
+            // Process all files in the zip
+            const filePromises = [];
+            
+            zipArchive.forEach((relativePath, zipEntry) => {
+                // Skip directories
+                if (zipEntry.dir) return;
+                
+                // Queue file processing
+                filePromises.push(
+                    zipEntry.async('uint8array')
+                        .then(async (fileData) => {
+                            try {
+                                const hash = await computeHash(fileData);
+                                this.duplicationTracker.registerFile(
+                                    modId,
+                                    modName,
+                                    relativePath,
+                                    hash,
+                                    fileData.length
+                                );
+                            } catch (error) {
+                                console.warn(`Failed to hash file ${relativePath}:`, error);
+                            }
+                        })
+                );
+            });
+            
+            // Wait for all files to be hashed
+            await Promise.all(filePromises);
+            
+        } catch (error) {
+            console.error('Failed to hash mod files:', error);
+        }
     }
     
     switchTab(tabName) {
@@ -637,6 +691,9 @@ class ModAnalyzer {
         this.currentModIndex = -1;
         this.renderModList();
         
+        // Clear duplication tracker
+        this.duplicationTracker.reset();
+        
         // Clear all tabs
         for (const tab of Object.values(this.tabs)) {
             tab.clear();
@@ -689,8 +746,8 @@ class ModAnalyzer {
 // Initialize app when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-        new ModAnalyzer();
+        window.app = new ModAnalyzer();
     });
 } else {
-    new ModAnalyzer();
+    window.app = new ModAnalyzer();
 }

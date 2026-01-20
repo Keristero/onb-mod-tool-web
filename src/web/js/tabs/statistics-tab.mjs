@@ -2,21 +2,30 @@
 
 import * as parser from '../parser.mjs';
 import BaseTab from './base-tab.mjs';
+import { FilePreviewMixin } from './file-preview-mixin.mjs';
 import { PIE_CHART_RADIUS, PIE_CHART_CENTER, CHART_COLORS, CATEGORY_COLORS, ERROR_COLORS, STATUS_COLORS } from '../constants.mjs';
 import { calculateStatistics } from './utilities/statistics-calculator.mjs';
 import { createPieChart, createBarChart, initializeChartTooltips } from './utilities/chart-renderer.mjs';
-import { exportToCSV, exportToXML } from './utilities/data-exporter.mjs';
+import { exportToCSV, exportToXML, exportDuplicationCSV, exportDuplicationXML } from './utilities/data-exporter.mjs';
 import { escapeHtml } from '../utils/html-utils.mjs';
+import { formatBytes } from '../utils/format-utils.mjs';
 
 export default class StatisticsTab extends BaseTab {
-    constructor() {
+    constructor(duplicationTracker = null) {
         super();
+        // Mix in file preview functionality
+        Object.assign(this, FilePreviewMixin);
         this.sessionMods = []; // Reset on page load
         this.currentView = 'file'; // 'file' or 'session'
         this.fileContainer = null;
         this.sessionContainer = null;
         this.renderDebounceTimer = null;
         this.hasRendered = false;
+        this.duplicationTracker = duplicationTracker;
+        this.currentSortBy = 'count'; // Default sort by occurrences
+        this.sortDirection = 'desc'; // 'asc' or 'desc'
+        this.selectedDuplicateHash = null; // For drill-down view
+        this.loadedThumbnails = new Set(); // Track loaded thumbnails to prevent reloading
     }
     
     async init(container) {
@@ -122,6 +131,9 @@ export default class StatisticsTab extends BaseTab {
         
         // Set up chart tooltips after rendering
         initializeChartTooltips();
+        
+        // Set up duplication table event handlers
+        this.setupDuplicationHandlers();
     }
     
     renderFileStats() {
@@ -144,7 +156,13 @@ export default class StatisticsTab extends BaseTab {
         }
         
         const stats = calculateStatistics(this.sessionMods);
-        const html = this.renderStats(stats, 'session');
+        let html = this.renderStats(stats, 'session');
+        
+        // Add duplication report if tracker is available
+        if (this.duplicationTracker) {
+            html += this.renderDuplicationReport();
+        }
+        
         this.setHTMLForContainer(this.sessionContainer, '#session-stats-content', html);
     }
     
@@ -551,6 +569,696 @@ export default class StatisticsTab extends BaseTab {
                 </div>
             </div>
         `;
+    }
+    
+    setupDuplicationHandlers() {
+        const sessionContent = this.sessionContainer.querySelector('#session-stats-content');
+        if (!sessionContent) return;
+        
+        // Update layout class based on drill-down state
+        const contentLayout = sessionContent.querySelector('.duplication-content-layout');
+        if (contentLayout) {
+            if (this.selectedDuplicateHash) {
+                contentLayout.classList.add('has-drill-down');
+            } else {
+                contentLayout.classList.remove('has-drill-down');
+            }
+        }
+        
+        // Export button handlers
+        const exportCsvBtn = sessionContent.querySelector('[data-action="export-duplication-csv"]');
+        if (exportCsvBtn) {
+            exportCsvBtn.addEventListener('click', () => this.exportDuplicationCSV());
+        }
+        
+        const exportXmlBtn = sessionContent.querySelector('[data-action="export-duplication-xml"]');
+        if (exportXmlBtn) {
+            exportXmlBtn.addEventListener('click', () => this.exportDuplicationXML());
+        }
+        
+        // Table sorting handlers
+        sessionContent.querySelectorAll('.duplication-table th.sortable').forEach(header => {
+            header.addEventListener('click', (e) => {
+                const sortField = e.currentTarget.dataset.sort;
+                this.handleDuplicationSort(sortField);
+            });
+        });
+        
+        // File name hover handlers (preview file) in the table
+        sessionContent.querySelectorAll('.duplication-table .hoverable-file').forEach(fileEl => {
+            fileEl.addEventListener('mouseenter', (e) => {
+                const modId = e.currentTarget.dataset.modId;
+                const filePath = e.currentTarget.dataset.filePath;
+                this.showDuplicationFilePreview(modId, filePath, e.currentTarget);
+            });
+            
+            fileEl.addEventListener('mouseleave', () => {
+                this.hidePreview();
+            });
+        });
+        
+        // Load actual preview thumbnails
+        sessionContent.querySelectorAll('.file-preview-thumb').forEach(async (thumbEl) => {
+            const modId = thumbEl.dataset.modId;
+            const filePath = thumbEl.dataset.filePath;
+            const type = thumbEl.dataset.type;
+            const thumbKey = `${modId}:${filePath}`;
+            
+            // Check if this element already has loaded content (img or audio tag)
+            const hasLoadedContent = thumbEl.querySelector('img, audio');
+            
+            // Only load if element doesn't have content yet
+            if (!hasLoadedContent) {
+                await this.loadThumbnail(thumbEl, modId, filePath, type);
+                this.loadedThumbnails.add(thumbKey);
+            }
+        });
+        
+        // Setup column resizing
+        this.setupColumnResizing(sessionContent);
+        
+        // Row click handlers (drill-down)
+        sessionContent.querySelectorAll('.duplicate-row').forEach(row => {
+            row.addEventListener('click', (e) => {
+                const hash = e.currentTarget.dataset.hash;
+                this.handleDuplicateRowClick(hash);
+            });
+        });
+        
+        // Close drill-down handler
+        const closeBtn = sessionContent.querySelector('[data-action="close-drill-down"]');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                this.selectedDuplicateHash = null;
+                this.render();
+            });
+        }
+        
+        // Mod name click handlers (select mod but stay on statistics tab)
+        sessionContent.querySelectorAll('.location-item .mod-name').forEach(modNameEl => {
+            modNameEl.addEventListener('click', (e) => {
+                const modId = e.currentTarget.dataset.modId;
+                this.handleModSelection(modId);
+            });
+        });
+    }
+    
+    handleDuplicationSort(field) {
+        // Map UI field names to tracker sort options
+        const sortMap = {
+            'count': 'count',
+            'size': 'size',
+            'impact': 'impact',
+            'path': 'impact' // Default to impact for path sort
+        };
+        
+        const newSortBy = sortMap[field] || 'impact';
+        
+        // Toggle direction if clicking the same column
+        if (this.currentSortBy === newSortBy) {
+            this.sortDirection = this.sortDirection === 'desc' ? 'asc' : 'desc';
+        } else {
+            // New column, default to descending
+            this.currentSortBy = newSortBy;
+            this.sortDirection = 'desc';
+        }
+        
+        // Clear thumbnails on sort change since table will re-render
+        this.loadedThumbnails.clear();
+        
+        this.render();
+    }
+    
+    handleDuplicateRowClick(hash) {
+        // Toggle selection state
+        const wasSelected = this.selectedDuplicateHash === hash;
+        const oldHash = this.selectedDuplicateHash;
+        
+        if (wasSelected) {
+            this.selectedDuplicateHash = null;
+        } else {
+            this.selectedDuplicateHash = hash;
+        }
+        
+        // Update DOM directly instead of full re-render
+        const container = this.sessionContainer || this.container;
+        if (!container) return;
+        
+        // Remove selected class from previously selected row
+        if (oldHash) {
+            const oldRow = container.querySelector(`[data-hash="${oldHash}"]`);
+            if (oldRow) {
+                oldRow.classList.remove('selected');
+            }
+        }
+        
+        // Add selected class to newly selected row (unless we're deselecting)
+        if (!wasSelected && hash) {
+            const newRow = container.querySelector(`[data-hash="${hash}"]`);
+            if (newRow) {
+                newRow.classList.add('selected');
+            }
+        }
+        
+        // Update drill-down panel
+        const duplicationContent = container.querySelector('.duplication-content-layout');
+        if (duplicationContent) {
+            // Check if drill-down already exists
+            const existingDrillDown = duplicationContent.querySelector('.drill-down-panel');
+            
+            if (this.selectedDuplicateHash) {
+                // Add or update drill-down
+                const drillDownHtml = this.renderFileDrillDown(this.selectedDuplicateHash);
+                if (existingDrillDown) {
+                    existingDrillDown.outerHTML = drillDownHtml;
+                } else {
+                    duplicationContent.insertAdjacentHTML('beforeend', drillDownHtml);
+                    duplicationContent.classList.add('has-drill-down');
+                }
+                
+                // Setup event handlers for the new drill-down
+                this.setupDrillDownHandlers(duplicationContent);
+            } else {
+                // Remove drill-down
+                if (existingDrillDown) {
+                    existingDrillDown.remove();
+                    duplicationContent.classList.remove('has-drill-down');
+                }
+            }
+        }
+    }
+    
+    setupDrillDownHandlers(container) {
+        // Close drill-down handler
+        const closeBtn = container.querySelector('[data-action="close-drill-down"]');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                this.selectedDuplicateHash = null;
+                this.handleDuplicateRowClick(null); // Trigger removal
+            });
+        }
+        
+        // Mod name click handlers (select mod but stay on statistics tab)
+        container.querySelectorAll('.location-item .mod-name').forEach(modNameEl => {
+            modNameEl.addEventListener('click', (e) => {
+                const modId = e.currentTarget.dataset.modId;
+                this.handleModSelection(modId);
+            });
+        });
+    }
+    
+    setupColumnResizing(container) {
+        const table = container.querySelector('.duplication-table');
+        if (!table) return;
+        
+        const colgroup = table.querySelector('colgroup');
+        const cols = Array.from(colgroup.querySelectorAll('col'));
+        const headers = Array.from(table.querySelectorAll('th'));
+        
+        headers.forEach((header, colIndex) => {
+            // Skip the last column (no resize needed)
+            if (colIndex === headers.length - 1) return;
+            
+            // Remove any existing resizer to prevent duplicates
+            const existingResizer = header.querySelector('.column-resizer');
+            if (existingResizer) {
+                existingResizer.remove();
+            }
+            
+            const resizer = document.createElement('div');
+            resizer.className = 'column-resizer';
+            header.appendChild(resizer);
+            
+            resizer.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const startX = e.clientX;
+                const col = cols[colIndex];
+                const nextCol = cols[colIndex + 1];
+                const startWidth = header.offsetWidth;
+                const nextHeader = headers[colIndex + 1];
+                const nextStartWidth = nextHeader ? nextHeader.offsetWidth : 0;
+                const minWidth = 50;
+                
+                // Add visual feedback
+                document.body.style.userSelect = 'none';
+                document.body.style.cursor = 'col-resize';
+                resizer.classList.add('active');
+                table.style.pointerEvents = 'none';
+                
+                const onMouseMove = (e) => {
+                    e.preventDefault();
+                    const deltaX = e.clientX - startX;
+                    const newWidth = Math.max(minWidth, startWidth + deltaX);
+                    const newNextWidth = Math.max(minWidth, nextStartWidth - deltaX);
+                    
+                    const tableWidth = table.offsetWidth;
+                    
+                    // Check if column should stay at fixed pixel width (preview column)
+                    const isFixedWidth = col.style.width.includes('px') && !col.style.width.includes('%');
+                    const isNextFixedWidth = nextCol && nextCol.style.width.includes('px') && !nextCol.style.width.includes('%');
+                    
+                    // Update current column
+                    if (isFixedWidth) {
+                        col.style.width = newWidth + 'px';
+                    } else {
+                        const widthPercent = (newWidth / tableWidth) * 100;
+                        col.style.width = `${widthPercent}%`;
+                    }
+                    
+                    // Update next column
+                    if (nextCol) {
+                        if (isNextFixedWidth) {
+                            nextCol.style.width = newNextWidth + 'px';
+                        } else {
+                            const nextWidthPercent = (newNextWidth / tableWidth) * 100;
+                            nextCol.style.width = `${nextWidthPercent}%`;
+                        }
+                    }
+                };
+                
+                const onMouseUp = () => {
+                    // Restore defaults
+                    document.body.style.userSelect = '';
+                    document.body.style.cursor = '';
+                    resizer.classList.remove('active');
+                    table.style.pointerEvents = '';
+                    
+                    // Clean up event listeners
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                };
+                
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
+        });
+    }
+    
+    handleModSelection(modId) {
+        // Find the mod index in the session
+        const modIndex = this.sessionMods.findIndex(mod => mod.id == modId);
+        if (modIndex !== -1) {
+            // Get the app instance (assuming we can access parent)
+            const app = window.app || document.querySelector('#app')?.__app;
+            if (app && app.selectMod) {
+                app.selectMod(modIndex);
+            }
+        }
+    }
+    
+    async loadThumbnail(element, modId, filePath, type) {
+        const mod = this.sessionMods.find(m => m.id == modId);
+        if (!mod || !mod.zipArchive) return;
+        
+        try {
+            const fileEntry = mod.zipArchive.file(filePath);
+            if (!fileEntry) return;
+            
+            if (type === 'image') {
+                const blob = await fileEntry.async('blob');
+                const url = URL.createObjectURL(blob);
+                element.innerHTML = `<img src="${url}" alt="" />`;
+            } else if (type === 'audio') {
+                // Create audio element for playback
+                const blob = await fileEntry.async('blob');
+                const url = URL.createObjectURL(blob);
+                const audioId = 'audio_' + Math.random().toString(36).substr(2, 9);
+                element.innerHTML = `
+                    <audio id="${audioId}" src="${url}" style="display: none;"></audio>
+                    <span class="audio-icon">🔊</span>
+                `;
+                
+                // Add click handler to play/pause
+                element.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const audio = element.querySelector('audio');
+                    if (audio.paused) {
+                        // Pause any other playing audio and remove their playing state
+                        document.querySelectorAll('.duplication-table audio').forEach(a => {
+                            if (a !== audio) {
+                                a.pause();
+                                // Remove playing class from the parent element
+                                a.closest('.file-preview-thumb')?.classList.remove('playing');
+                            }
+                        });
+                        audio.play();
+                        element.classList.add('playing');
+                    } else {
+                        audio.pause();
+                        element.classList.remove('playing');
+                    }
+                });
+                
+                // Update icon when audio ends or is paused
+                const audio = element.querySelector('audio');
+                audio.addEventListener('ended', () => {
+                    element.classList.remove('playing');
+                });
+                audio.addEventListener('pause', () => {
+                    element.classList.remove('playing');
+                });
+            }
+        } catch (error) {
+            console.error('Failed to load thumbnail:', error);
+        }
+    }
+    
+    async showDuplicationFilePreview(modId, filePath, targetElement) {
+        // Find the mod
+        const mod = this.sessionMods.find(m => m.id == modId);
+        if (!mod || !mod.zipArchive) {
+            return;
+        }
+        
+        // Set the zipArchive for the mixin to use
+        this.zipArchive = mod.zipArchive;
+        
+        try {
+            // Get file from zip
+            const fileEntry = mod.zipArchive.file(filePath);
+            if (!fileEntry) {
+                return;
+            }
+            
+            const ext = filePath.split('.').pop().toLowerCase();
+            let previewHtml;
+            
+            // Render based on file type (same logic as FilePreviewMixin)
+            if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) {
+                previewHtml = await this.renderImagePreview(fileEntry, filePath);
+            } else if (['ogg', 'wav', 'mp3'].includes(ext)) {
+                previewHtml = await this.renderAudioPreview(fileEntry, filePath);
+            } else if (['lua', 'txt', 'md', 'json', 'xml', 'animation'].includes(ext)) {
+                previewHtml = await this.renderTextPreview(fileEntry, filePath, ext);
+            } else {
+                previewHtml = this.renderBinaryPreview(fileEntry, filePath);
+            }
+            
+            // Use the mixin's showTooltip method
+            this.showTooltip(targetElement, previewHtml);
+            
+        } catch (error) {
+            console.error('Failed to preview file:', error);
+        }
+    }
+    
+    renderDuplicationReport() {
+        if (!this.duplicationTracker) {
+            return '';
+        }
+        
+        // Check if we have enough mods for duplication analysis
+        if (this.sessionMods.length < 2) {
+            return `
+                <div class="stats-section">
+                    <h2>File Duplication Analysis</h2>
+                    <div class="empty-state">
+                        Process multiple mods to see duplication analysis. 
+                        This feature identifies identical files shared across different mods.
+                    </div>
+                </div>
+            `;        }
+        
+        const metrics = this.duplicationTracker.getMetrics();
+        const duplicatedFiles = this.duplicationTracker.getDuplicatedFiles(this.currentSortBy, this.sortDirection);
+        
+        // Check if any duplicates found
+        if (duplicatedFiles.length === 0) {
+            return `
+                <div class="stats-section">
+                    <h2>File Duplication Analysis</h2>
+                    <div class="empty-state">
+                        No duplicate files found across ${this.sessionMods.length} mods.
+                        All files are unique!
+                    </div>
+                </div>
+            `;
+        }
+        
+        return `
+            <div class="stats-section duplication-section">
+                <div class="duplication-header">
+                    <h2>File Duplication Analysis</h2>
+                    <div class="duplication-actions">
+                        <button class="btn btn-secondary" data-action="export-duplication-csv">Export CSV</button>
+                        <button class="btn btn-secondary" data-action="export-duplication-xml">Export XML</button>
+                    </div>
+                </div>
+                ${this.renderDuplicationMetrics(metrics)}
+                <div class="duplication-content-layout">
+                    ${this.renderDuplicatedFilesTable(duplicatedFiles, metrics)}
+                    ${this.selectedDuplicateHash ? this.renderFileDrillDown(this.selectedDuplicateHash) : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    renderDuplicationMetrics(metrics) {
+        const card = (title, value, subtitle = '') => `
+            <div class="stat-card">
+                <h3>${title}</h3>
+                <div class="stat-value">${value}</div>
+                ${subtitle ? `<div class="stat-subtitle">${subtitle}</div>` : ''}
+            </div>
+        `;
+        
+        return `
+            <div class="stats-overview duplication-metrics">
+                ${card(
+                    'Total Duplicated',
+                    formatBytes(metrics.totalDuplicatedBytes),
+                    'across all occurrences'
+                )}
+                ${card(
+                    'Potential Savings',
+                    formatBytes(metrics.potentialSavings),
+                    'if deduplicated'
+                )}
+                ${card(
+                    'Duplication Rate',
+                    `${metrics.duplicationRate.toFixed(1)}%`,
+                    `${metrics.duplicatedFiles} of ${metrics.uniqueFiles} files`
+                )}
+                ${card(
+                    'Top Duplicate',
+                    this.getTopDuplicateInfo(metrics),
+                    ''
+                )}
+            </div>
+        `;
+    }
+    
+    getTopDuplicateInfo(metrics) {
+        const duplicatedFiles = this.duplicationTracker.getDuplicatedFiles('impact');
+        if (duplicatedFiles.length === 0) return 'None';
+        
+        const top = duplicatedFiles[0];
+        const basename = top.locations[0].filePath.split('/').pop();
+        return `${basename} (${top.locations.length}×)`;
+    }
+    
+    renderDuplicatedFilesTable(files, metrics) {
+        const maxDisplay = 50;
+        const displayFiles = files.slice(0, maxDisplay);
+        
+        // Column definitions - single source of truth
+        const columns = [
+            {
+                key: 'filepath',
+                header: 'File Path',
+                width: '35%',
+                sortable: true,
+                sortField: 'path',
+                render: (fileInfo) => {
+                    const basename = fileInfo.locations[0].filePath.split('/').pop();
+                    const fullPath = fileInfo.locations[0].filePath;
+                    const ext = basename.split('.').pop().toLowerCase();
+                    const hasPreview = ['png', 'jpg', 'jpeg', 'gif', 'ogg', 'wav', 'mp3'].includes(ext);
+                    const hoverableClass = hasPreview ? '' : 'hoverable-file';
+                    const firstLocation = fileInfo.locations[0];
+                    
+                    return `
+                        <td class="file-path" title="${escapeHtml(fullPath)}">
+                            <span class="basename ${hoverableClass}" 
+                                  data-mod-id="${firstLocation.modId}" 
+                                  data-file-path="${escapeHtml(fullPath)}">${escapeHtml(basename)}</span>
+                            <span class="filepath-detail">${escapeHtml(fullPath)}</span>
+                        </td>
+                    `;
+                }
+            },
+            {
+                key: 'preview',
+                header: 'Preview',
+                width: '15%',
+                sortable: false,
+                headerClass: 'preview-header',
+                render: (fileInfo) => {
+                    const basename = fileInfo.locations[0].filePath.split('/').pop();
+                    const fullPath = fileInfo.locations[0].filePath;
+                    const ext = basename.split('.').pop().toLowerCase();
+                    const firstLocation = fileInfo.locations[0];
+                    
+                    let content = '';
+                    if (['png', 'jpg', 'jpeg', 'gif'].includes(ext)) {
+                        content = `<div class="file-preview-thumb" 
+                                       data-type="image" 
+                                       data-mod-id="${firstLocation.modId}" 
+                                       data-file-path="${escapeHtml(fullPath)}">🖼️</div>`;
+                    } else if (['ogg', 'wav', 'mp3'].includes(ext)) {
+                        content = `<div class="file-preview-thumb audio-preview" 
+                                       data-type="audio" 
+                                       data-mod-id="${firstLocation.modId}" 
+                                       data-file-path="${escapeHtml(fullPath)}" 
+                                       title="Click to play/pause">🔊</div>`;
+                    }
+                    
+                    return `<td class="preview-cell">${content}</td>`;
+                }
+            },
+            {
+                key: 'count',
+                header: 'Occurrences',
+                width: '15%',
+                sortable: true,
+                sortField: 'count',
+                render: (fileInfo) => `<td class="count">${fileInfo.locations.length}</td>`
+            },
+            {
+                key: 'size',
+                header: 'Size',
+                width: '15%',
+                sortable: true,
+                sortField: 'size',
+                render: (fileInfo) => `<td class="size">${formatBytes(fileInfo.size)}</td>`
+            },
+            {
+                key: 'impact',
+                header: 'Total Impact',
+                width: '20%',
+                sortable: true,
+                sortField: 'impact',
+                render: (fileInfo) => {
+                    const impact = fileInfo.locations.length * fileInfo.size;
+                    return `<td class="impact">${formatBytes(impact)}</td>`;
+                }
+            }
+        ];
+        
+        // Generate sort indicator
+        const sortIcon = (field) => {
+            if (this.currentSortBy === field) {
+                return this.sortDirection === 'desc' 
+                    ? ' <span class="sort-indicator">▼</span>' 
+                    : ' <span class="sort-indicator">▲</span>';
+            }
+            return '';
+        };
+        
+        // Generate table header
+        const colgroup = columns.map(col => 
+            `<col class="col-${col.key}" style="width: ${col.width};">`
+        ).join('');
+        
+        const headerRow = columns.map((col, index) => {
+            const sortableClass = col.sortable ? 'sortable' : '';
+            const headerClass = col.headerClass || '';
+            const sortAttr = col.sortable ? `data-sort="${col.sortField}"` : '';
+            const icon = col.sortable ? sortIcon(col.sortField) : '';
+            
+            return `<th class="${sortableClass} ${headerClass}" ${sortAttr} data-col-index="${index}">${col.header}${icon}</th>`;
+        }).join('');
+        
+        // Generate table rows
+        const rows = displayFiles.map(fileInfo => {
+            const isSelected = this.selectedDuplicateHash === fileInfo.hash;
+            const cells = columns.map(col => col.render(fileInfo)).join('');
+            
+            return `
+                <tr class="duplicate-row ${isSelected ? 'selected' : ''}" data-hash="${fileInfo.hash}">
+                    ${cells}
+                </tr>
+            `;
+        }).join('');
+        
+        const showingText = files.length > maxDisplay 
+            ? `<p class="table-info">Showing top ${maxDisplay} of ${files.length} duplicated files</p>`
+            : `<p class="table-info">Showing all ${files.length} duplicated files</p>`;
+        
+        return `
+            <div class="duplication-table-container">
+                ${showingText}
+                <table class="duplication-table">
+                    <colgroup>
+                        ${colgroup}
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            ${headerRow}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+    
+    renderFileDrillDown(hash) {
+        const fileInfo = this.duplicationTracker.getFileDetails(hash);
+        if (!fileInfo) return '';
+        
+        const basename = fileInfo.locations[0].filePath.split('/').pop();
+        const locationsList = fileInfo.locations.map(loc => `
+            <li class="location-item">
+                <span class="mod-name" data-mod-id="${loc.modId}" title="Click to select this mod">${escapeHtml(loc.modName)}</span>
+                <span class="file-path" title="${escapeHtml(loc.filePath)}">${escapeHtml(loc.filePath)}</span>
+            </li>
+        `).join('');
+        
+        return `
+            <div class="drill-down-panel">
+                <div class="drill-down-header">
+                    <h3>Duplicate File Details</h3>
+                    <button class="close-drill-down" data-action="close-drill-down">✕</button>
+                </div>
+                <div class="drill-down-content">
+                    <div class="file-info">
+                        <div><strong>File:</strong> ${escapeHtml(basename)}</div>
+                        <div><strong>Size:</strong> ${formatBytes(fileInfo.size)}</div>
+                        <div><strong>Hash:</strong> <code>${fileInfo.hash.substring(0, 16)}...</code></div>
+                        <div><strong>Occurrences:</strong> ${fileInfo.locations.length}</div>
+                    </div>
+                    <div class="locations">
+                        <h4>Found in these mods:</h4>
+                        <ul class="locations-list">
+                            ${locationsList}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    exportDuplicationCSV() {
+        if (!this.duplicationTracker) return;
+        
+        const csv = exportDuplicationCSV(this.duplicationTracker);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        const filename = `duplication-report-${timestamp}.csv`;
+        this.downloadFile(filename, csv, 'text/csv');
+    }
+    
+    exportDuplicationXML() {
+        if (!this.duplicationTracker) return;
+        
+        const xml = exportDuplicationXML(this.duplicationTracker);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        const filename = `duplication-report-${timestamp}.xml`;
+        this.downloadFile(filename, xml, 'application/xml');
     }
     
     exportCSV(mode) {

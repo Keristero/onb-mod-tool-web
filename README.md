@@ -1,12 +1,16 @@
 # ONB Mod Tool
 
-Browser-based WebAssembly analyzer for One Night Battle mod files.
+Browser-based WebAssembly analyzer for Open Net Battle mod files.
 
 ## Usage
 
 **Web Interface:**
 
 Visit: [https://keristero.github.io/onb-mod-tool-web/](https://keristero.github.io/onb-mod-tool-web/)
+
+1. Upload a mod zip
+1. You will see the new mod manifest json as well as any errors or warnings encountered while parsing the mod.
+1. You can upload many mods and view insightful statistics in the statistics tab.
 
 **Local Development:**
 
