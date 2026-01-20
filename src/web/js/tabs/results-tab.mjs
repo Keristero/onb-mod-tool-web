@@ -5,7 +5,7 @@ import BaseTab from './base-tab.mjs';
 import { FilePreviewMixin } from './file-preview-mixin.mjs';
 import { IssueManager, findBestPathMatch } from './issue-manager.mjs';
 import { addClass } from '../utils/dom-helpers.mjs';
-import { escapeHtml } from '../utils/html-utils.mjs';
+import { createElement, escapeHtml } from '../utils/html-utils.mjs';
 
 export default class ResultsTab extends BaseTab {
     constructor() {
@@ -195,35 +195,54 @@ export default class ResultsTab extends BaseTab {
             return '<div class="empty-state">No JSON data available</div>';
         }
         
-        return this.renderObject(data, 0);
+        const result = this.renderObject(data, 0);
+        // Convert to HTML string if it's a DOM element
+        if (result instanceof HTMLElement) {
+            const temp = document.createElement('div');
+            temp.appendChild(result);
+            return temp.innerHTML;
+        }
+        return result;
     }
     
+    /**
+     * Recursively render any JSON object/array structure
+     * This is FULLY DYNAMIC - it renders ALL fields present in the data
+     * using Object.keys() with no filtering or hardcoding of field names
+     * Uses DOM createElement for better performance
+     */
     renderObject(obj, depth = 0) {
         const indent = '  '.repeat(depth);
         
-        if (obj === null) return '<span class="json-null">null</span>';
-        if (obj === undefined) return '<span class="json-undefined">undefined</span>';
+        // Primitives - create spans
+        if (obj === null) {
+            return createElement('span', { className: 'json-null', textContent: 'null' });
+        }
+        
+        if (obj === undefined) {
+            return createElement('span', { className: 'json-undefined', textContent: 'undefined' });
+        }
         
         const type = typeof obj;
         
         if (type === 'boolean') {
-            return `<span class="json-boolean">${obj}</span>`;
+            return createElement('span', { className: 'json-boolean', textContent: obj });
         }
         
         if (type === 'number') {
-            return `<span class="json-number">${obj}</span>`;
+            return createElement('span', { className: 'json-number', textContent: obj });
         }
         
         if (type === 'string') {
-            return `<span class="json-string">"${escapeHtml(obj)}"</span>`;
+            return createElement('span', { className: 'json-string', textContent: `"${obj}"` });
         }
         
         if (Array.isArray(obj)) {
             if (obj.length === 0) {
-                return '<span class="json-array">[]</span>';
+                return createElement('span', { className: 'json-array', textContent: '[]' });
             }
             
-            // Check if array contains only primitives (numbers, strings, booleans, null)
+            // Check if array contains only primitives
             const isPrimitiveArray = obj.every(item => {
                 const itemType = typeof item;
                 return item === null || itemType === 'number' || itemType === 'string' || itemType === 'boolean';
@@ -231,58 +250,114 @@ export default class ResultsTab extends BaseTab {
             
             if (isPrimitiveArray) {
                 // Render inline for primitive arrays
-                const items = obj.map(item => {
-                    if (item === null) return '<span class="json-null">null</span>';
-                    if (typeof item === 'boolean') return `<span class="json-boolean">${item}</span>`;
-                    if (typeof item === 'number') return `<span class="json-number">${item}</span>`;
-                    if (typeof item === 'string') return `<span class="json-string">"${escapeHtml(item)}"</span>`;
-                }).join(', ');
+                const span = createElement('span', { className: 'json-array json-array-inline' });
+                span.textContent = '[';
                 
-                return `<span class="json-array json-array-inline">[${items}]</span>`;
+                obj.forEach((item, index) => {
+                    const itemEl = this.renderObject(item, depth + 1);
+                    span.appendChild(itemEl);
+                    if (index < obj.length - 1) {
+                        span.appendChild(document.createTextNode(', '));
+                    }
+                });
+                
+                span.appendChild(document.createTextNode(']'));
+                return span;
             }
             
             // Render multi-line for complex arrays
-            let html = '<div class="json-array">';
-            html += `<span class="json-bracket json-expand" data-expanded="true">▼ [</span>`;
-            html += '<div class="json-array-content">';
+            const container = createElement('div', { className: 'json-array' });
+            
+            const bracket = createElement('span', {
+                className: 'json-bracket json-expand',
+                textContent: '▼ [',
+                dataset: { expanded: 'true' }
+            });
+            container.appendChild(bracket);
+            
+            const content = createElement('div', { className: 'json-array-content' });
             
             obj.forEach((item, index) => {
-                html += `<div class="json-item">${indent}  `;
-                html += this.renderObject(item, depth + 1);
-                if (index < obj.length - 1) html += ',';
-                html += '</div>';
+                const itemDiv = createElement('div', { className: 'json-item' });
+                itemDiv.appendChild(document.createTextNode(indent + '  '));
+                
+                const itemEl = this.renderObject(item, depth + 1);
+                if (typeof itemEl === 'string') {
+                    itemDiv.innerHTML += itemEl;
+                } else {
+                    itemDiv.appendChild(itemEl);
+                }
+                
+                if (index < obj.length - 1) {
+                    itemDiv.appendChild(document.createTextNode(','));
+                }
+                
+                content.appendChild(itemDiv);
             });
             
-            html += `</div>${indent}<span class="json-bracket">]</span>`;
-            html += '</div>';
-            return html;
+            container.appendChild(content);
+            container.appendChild(createElement('span', {
+                className: 'json-bracket',
+                textContent: indent + ']'
+            }));
+            
+            return container;
         }
         
         if (type === 'object') {
             const keys = Object.keys(obj);
             
             if (keys.length === 0) {
-                return '<span class="json-object">{}</span>';
+                return createElement('span', { className: 'json-object', textContent: '{}' });
             }
             
-            let html = '<div class="json-object">';
-            html += `<span class="json-bracket json-expand" data-expanded="true">▼ {</span>`;
-            html += '<div class="json-object-content">';
+            const container = createElement('div', { className: 'json-object' });
+            
+            const bracket = createElement('span', {
+                className: 'json-bracket json-expand',
+                textContent: '▼ {',
+                dataset: { expanded: 'true' }
+            });
+            container.appendChild(bracket);
+            
+            const content = createElement('div', { className: 'json-object-content' });
             
             keys.forEach((key, index) => {
-                html += `<div class="json-property">`;
-                html += `${indent}  <span class="json-key">"${escapeHtml(key)}"</span>: `;
-                html += this.renderObject(obj[key], depth + 1);
-                if (index < keys.length - 1) html += ',';
-                html += '</div>';
+                const propDiv = createElement('div', { className: 'json-property' });
+                propDiv.appendChild(document.createTextNode(indent + '  '));
+                
+                const keySpan = createElement('span', {
+                    className: 'json-key',
+                    textContent: `"${key}"`
+                });
+                propDiv.appendChild(keySpan);
+                
+                propDiv.appendChild(document.createTextNode(': '));
+                
+                const valueEl = this.renderObject(obj[key], depth + 1);
+                if (typeof valueEl === 'string') {
+                    propDiv.innerHTML += valueEl;
+                } else {
+                    propDiv.appendChild(valueEl);
+                }
+                
+                if (index < keys.length - 1) {
+                    propDiv.appendChild(document.createTextNode(','));
+                }
+                
+                content.appendChild(propDiv);
             });
             
-            html += `</div>${indent}<span class="json-bracket">}</span>`;
-            html += '</div>';
-            return html;
+            container.appendChild(content);
+            container.appendChild(createElement('span', {
+                className: 'json-bracket',
+                textContent: indent + '}'
+            }));
+            
+            return container;
         }
         
-        return `<span class="json-unknown">${String(obj)}</span>`;
+        return createElement('span', { className: 'json-unknown', textContent: String(obj) });
     }
     
     setupJsonExpanders() {

@@ -34,7 +34,10 @@ export default class FileBrowserTab extends BaseTab {
                 </div>
                 <div class="resize-handle"></div>
                 <div class="file-preview-container">
-                    <h3 id="preview-filename">Select a file</h3>
+                    <div class="preview-header">
+                        <h3 id="preview-filename">Select a file</h3>
+                        <button class="btn btn-download" data-action="download-file" style="display: none;" title="Download file">⬇</button>
+                    </div>
                     <div class="file-preview-scroll-wrapper">
                         <div id="file-preview" class="file-preview"></div>
                     </div>
@@ -265,6 +268,17 @@ export default class FileBrowserTab extends BaseTab {
         const headerEl = this.querySelector('#preview-filename');
         if (headerEl) headerEl.textContent = filename;
         
+        // Show and setup download button
+        const downloadBtn = this.container.querySelector('[data-action="download-file"]');
+        if (downloadBtn) {
+            downloadBtn.style.display = 'block';
+            // Remove old listener if exists
+            const newBtn = downloadBtn.cloneNode(true);
+            downloadBtn.parentNode.replaceChild(newBtn, downloadBtn);
+            // Add new listener
+            newBtn.addEventListener('click', () => this.downloadFile());
+        }
+        
         // Load and display file
         const file = this.zipArchive.files[path];
         if (!file) return;
@@ -322,12 +336,15 @@ export default class FileBrowserTab extends BaseTab {
         // Build error summary section
         let errorSummaryHtml = '';
         if (errors.length > 0) {
-            const errorItems = errors.map(e => 
-                `<div class="error-item">
-                    <span class="error-location">[${e.line}:${e.column}]</span>
+            const errorItems = errors.map(e => {
+                const location = (e.line !== null && e.column !== null) 
+                    ? `<span class="error-location">[${e.line}:${e.column}]</span>` 
+                    : '';
+                return `<div class="error-item">
+                    ${location}
                     <span class="error-message">${escapeHtml(e.message)}</span>
-                </div>`
-            ).join('');
+                </div>`;
+            }).join('');
             
             errorSummaryHtml = `
                 <div class="error-summary">
@@ -340,12 +357,15 @@ export default class FileBrowserTab extends BaseTab {
         // Build warning summary section
         let warningSummaryHtml = '';
         if (warnings.length > 0) {
-            const warningItems = warnings.map(w => 
-                `<div class="warning-item">
-                    <span class="warning-location">[${w.line}:${w.column}]</span>
+            const warningItems = warnings.map(w => {
+                const location = (w.line !== null && w.column !== null) 
+                    ? `<span class="warning-location">[${w.line}:${w.column}]</span>` 
+                    : '';
+                return `<div class="warning-item">
+                    ${location}
                     <span class="warning-message">${escapeHtml(w.message)}</span>
-                </div>`
-            ).join('');
+                </div>`;
+            }).join('');
             
             warningSummaryHtml = `
                 <div class="warning-summary">
@@ -499,7 +519,6 @@ export default class FileBrowserTab extends BaseTab {
         this.setHTML('#file-preview', `
             <div class="binary-preview">
                 <p>Binary file (${file._data.uncompressedSize} bytes)</p>
-                <button class="btn" onclick="this.download()">Download</button>
             </div>
         `);
     }
@@ -551,6 +570,31 @@ export default class FileBrowserTab extends BaseTab {
         });
     }
 
+    async downloadFile() {
+        if (!this.selectedFile || !this.zipArchive) return;
+        
+        const file = this.zipArchive.files[this.selectedFile];
+        if (!file) return;
+        
+        try {
+            const blob = await file.async('blob');
+            const url = URL.createObjectURL(blob);
+            const fileName = this.selectedFile.split('/').pop();
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            // Clean up the object URL after a short delay
+            setTimeout(() => URL.revokeObjectURL(url), 100);
+        } catch (error) {
+            console.error('Failed to download file:', error);
+        }
+    }
+
     
     clear() {
         super.clear();
@@ -560,6 +604,12 @@ export default class FileBrowserTab extends BaseTab {
         if (this.container) {
             this.setHTML('#file-tree', '<div class="empty-state">No files</div>');
             this.setHTML('#file-preview', '');
+            
+            // Hide download button
+            const downloadBtn = this.container.querySelector('[data-action="download-file"]');
+            if (downloadBtn) {
+                downloadBtn.style.display = 'none';
+            }
         }
     }
     

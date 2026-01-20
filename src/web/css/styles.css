@@ -541,8 +541,34 @@ main {
     height: 100%;
 }
 
-.file-tree-container h3,
-.file-preview-container h3 {
+.preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    flex-shrink: 0;
+}
+
+.preview-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.btn-download {
+    font-size: 1.2rem;
+    padding: 0.25rem 0.5rem;
+    min-width: auto;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.file-tree-container h3 {
     margin: 0;
     padding: 0.5rem;
     font-size: 1rem;
@@ -1074,6 +1100,8 @@ main {
 .dependencies-actions {
     display: flex;
     gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
 }
 
 /* Summary Grid Layout */
