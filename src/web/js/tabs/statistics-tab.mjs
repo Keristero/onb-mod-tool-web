@@ -87,6 +87,10 @@ export default class StatisticsTab extends BaseTab {
             // Update existing
             Object.assign(existing, mod);
         }
+        
+        // Mark that we need to render, but don't render immediately
+        // Let the debouncing in render() handle batch updates efficiently
+        this.needsRender = true;
     }
     
     setCurrentMod(mod) {
@@ -114,14 +118,15 @@ export default class StatisticsTab extends BaseTab {
     }
     
     render() {
-        // Debounce rendering for better performance
+        // Debounce rendering for better performance during batch operations
         if (this.renderDebounceTimer) {
             clearTimeout(this.renderDebounceTimer);
         }
         
+        // Use longer debounce (200ms) to handle batch uploads more efficiently
         this.renderDebounceTimer = setTimeout(() => {
             this._renderImmediate();
-        }, 50);
+        }, 200);
     }
     
     _renderImmediate() {
