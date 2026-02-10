@@ -214,4 +214,32 @@ export class DuplicationTracker {
   getTotalFiles() {
     return this.fileRegistry.size;
   }
+
+  /**
+   * Get all files with metadata for analysis (including size, extension, mod info)
+   * Returns a flat array where each file location is represented as a separate entry
+   * @returns {Array<{hash: string, size: number, path: string, modId: string, modName: string, extension: string}>}
+   */
+  getFilesWithMetadata() {
+    const files = [];
+    
+    for (const fileInfo of this.fileRegistry.values()) {
+      fileInfo.locations.forEach(location => {
+        // Extract extension from file path
+        const pathParts = location.filePath.split('.');
+        const extension = pathParts.length > 1 ? pathParts.pop().toLowerCase() : '';
+        
+        files.push({
+          hash: fileInfo.hash,
+          size: fileInfo.size,
+          path: location.filePath,
+          modId: location.modId,
+          modName: location.modName,
+          extension: extension
+        });
+      });
+    }
+    
+    return files;
+  }
 }

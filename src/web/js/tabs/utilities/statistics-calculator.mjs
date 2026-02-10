@@ -198,3 +198,238 @@ export function calculateStatistics(mods, options = {}) {
         failedMods
     };
 }
+
+/**
+ * Histogram bin ranges (logarithmic scale for better distribution)
+ */
+const BIN_RANGES = [
+    { min: 0, max: 1024, label: '0-1 KB' },
+    { min: 1024, max: 10240, label: '1-10 KB' },
+    { min: 10240, max: 102400, label: '10-100 KB' },
+    { min: 102400, max: 1048576, label: '100 KB-1 MB' },
+    { min: 1048576, max: 10485760, label: '1-10 MB' },
+    { min: 10485760, max: Infinity, label: '10+ MB' }
+];
+
+/**
+ * Calculate median using quickselect algorithm (O(n) average case)
+ * @param {Array<number>} sizes - Array of file sizes
+ * @returns {number} Median value
+ */
+function calculateMedian(sizes) {
+    if (sizes.length === 0) return 0;
+    
+    const sorted = [...sizes].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    
+    if (sorted.length % 2 === 0) {
+        return (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+    return sorted[mid];
+}
+
+/**
+ * Calculate mode from histogram bins (most frequent size range)
+ * @param {Array<{min: number, max: number, label: string, count: number}>} histogram - Histogram bins
+ * @returns {{label: string, count: number, midpoint: number} | null} Mode bin or null
+ */
+function calculateMode(histogram) {
+    if (histogram.length === 0) return null;
+    
+    const maxBin = histogram.reduce((max, bin) => 
+        bin.count > max.count ? bin : max
+    , { count: 0 });
+    
+    if (maxBin.count === 0) return null;
+    
+    // Calculate midpoint of the bin for display
+    const midpoint = maxBin.max === Infinity 
+        ? maxBin.min * 2  // For open-ended bin, use 2x min as estimate
+        : (maxBin.min + maxBin.max) / 2;
+    
+    return {
+        label: maxBin.label,
+        count: maxBin.count,
+        midpoint: Math.round(midpoint)
+    };
+}
+
+/**
+ * Calculate mean file size
+ * @param {Array<{size: number}>} files - Array of file objects
+ * @returns {number} Mean file size
+ */
+function calculateMean(files) {
+    if (files.length === 0) return 0;
+    
+    const total = files.reduce((sum, file) => sum + file.size, 0);
+    return Math.round(total / files.length);
+}
+
+/**
+ * Create histogram bins for file sizes
+ * @param {Array<{size: number}>} files - Array of file objects
+ * @returns {Array<{min: number, max: number, label: string, count: number}>} Histogram bins
+ */
+function createHistogramBins(files) {
+    const bins = BIN_RANGES.map(range => ({
+        ...range,
+        count: 0
+    }));
+    
+    files.forEach(file => {
+        const bin = bins.find(b => file.size >= b.min && file.size < b.max);
+        if (bin) bin.count++;
+    });
+    
+    return bins;
+}
+
+/**
+ * Group files by extension with size aggregation
+ * @param {Array<{size: number, extension: string}>} files - Array of file objects
+ * @returns {Array<{extension: string, count: number, totalSize: number, percentage: number}>} Extension breakdown
+ */
+function groupByExtension(files) {
+    if (files.length === 0) return [];
+    
+    const groups = {};
+    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+    
+    files.forEach(file => {
+        const ext = file.extension || '(no extension)';
+        if (!groups[ext]) {
+            groups[ext] = { count: 0, totalSize: 0 };
+        }
+        groups[ext].count++;
+        groups[ext].totalSize += file.size;
+    });
+    
+    return Object.entries(groups)
+        .map(([extension, data]) => ({
+            extension,
+            count: data.count,
+            totalSize: data.totalSize,
+            percentage: totalSize > 0 ? (data.totalSize / totalSize) * 100 : 0
+        }))
+        .sort((a, b) => b.totalSize - a.totalSize); // Sort by total size descending
+}
+
+/**
+ * Calculate file size statistics by category
+ * @param {Array<{size: number, category: string}>} files - Array of file objects with category
+ * @param {Object} categories - Category mapping from mods
+ * @returns {Array<{category: string, median: number, mean: number, count: number}>} Category statistics
+ */
+function groupByCategory(files, categories) {
+    const categoryGroups = {};
+    
+    files.forEach(file => {
+        const cat = file.category || 'Unknown';
+        if (!categoryGroups[cat]) {
+            categoryGroups[cat] = [];
+        }
+        categoryGroups[cat].push(file.size);
+    });
+    
+    return Object.entries(categoryGroups)
+        .map(([category, sizes]) => ({
+            category,
+            median: calculateMedian(sizes),
+            mean: calculateMean(sizes.map(size => ({ size }))),
+            count: sizes.length
+        }))
+        .sort((a, b) => b.median - a.median); // Sort by median descending
+}
+
+/**
+ * Calculate comprehensive file size statistics
+ * @param {Array<{size: number, extension: string, category?: string, modId: string}>} files - Array of file objects
+ * @param {Object} categoryMap - Map of modId to category for lookups
+ * @param {Object} options - Calculation options
+ * @param {string|null} options.category - Filter by specific category
+ * @returns {Object} File size statistics
+ */
+export function calculateFileSizeStatistics(files, categoryMap = {}, options = {}) {
+    const { category = null } = options;
+    
+    // Enrich files with category information from categoryMap
+    const enrichedFiles = files.map(file => ({
+        ...file,
+        category: categoryMap[file.modId] || 'Unknown'
+    }));
+    
+    // Filter by category if specified
+    const filteredFiles = category 
+        ? enrichedFiles.filter(f => f.category === category)
+        : enrichedFiles;
+    
+    if (filteredFiles.length === 0) {
+        return {
+            histogram: [],
+            median: 0,
+            mode: null,
+            mean: 0,
+            byExtension: [],
+            byCategory: [],
+            totalFiles: 0,
+            totalSize: 0,
+            modStats: {
+                totalMods: 0,
+                median: 0,
+                mean: 0,
+                mode: null
+            }
+        };
+    }
+    
+    // Calculate file-level histogram (for distribution chart)
+    const histogram = createHistogramBins(filteredFiles);
+    
+    // Calculate mod-level statistics (aggregate files by mod)
+    const modSizes = aggregateByMod(filteredFiles);
+    const modSizeValues = modSizes.map(m => m.totalSize);
+    const modHistogram = createHistogramBins(modSizes.map(m => ({ size: m.totalSize })));
+    
+    return {
+        histogram, // File-level histogram for distribution chart
+        median: calculateMedian(modSizeValues), // Mod-level median
+        mode: calculateMode(modHistogram), // Mod-level mode
+        mean: calculateMean(modSizes.map(m => ({ size: m.totalSize }))), // Mod-level mean
+        byExtension: groupByExtension(filteredFiles),
+        byCategory: groupByCategory(enrichedFiles, categoryMap), // Always use full dataset for category comparison
+        totalFiles: filteredFiles.length,
+        totalSize: filteredFiles.reduce((sum, f) => sum + f.size, 0),
+        modStats: {
+            totalMods: modSizes.length,
+            median: calculateMedian(modSizeValues),
+            mean: calculateMean(modSizes.map(m => ({ size: m.totalSize }))),
+            mode: calculateMode(modHistogram)
+        }
+    };
+}
+
+/**
+ * Aggregate files by mod to calculate total mod sizes
+ * @param {Array<{size: number, modId: string, modName: string}>} files - Array of file objects
+ * @returns {Array<{modId: string, modName: string, totalSize: number, fileCount: number}>} Mod aggregations
+ */
+function aggregateByMod(files) {
+    const modMap = {};
+    
+    files.forEach(file => {
+        if (!modMap[file.modId]) {
+            modMap[file.modId] = {
+                modId: file.modId,
+                modName: file.modName,
+                totalSize: 0,
+                fileCount: 0
+            };
+        }
+        modMap[file.modId].totalSize += file.size;
+        modMap[file.modId].fileCount++;
+    });
+    
+    return Object.values(modMap);
+}
+

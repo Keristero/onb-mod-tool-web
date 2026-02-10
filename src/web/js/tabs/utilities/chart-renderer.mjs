@@ -242,3 +242,107 @@ export function initializeChartTooltips() {
         });
     });
 }
+
+/**
+ * Creates a histogram chart for file size distribution
+ * @param {Array<{min: number, max: number, label: string, count: number}>} bins - Histogram bins
+ * @param {Object} options - Chart configuration options
+ * @param {number} options.width - Chart width (default: 600)
+ * @param {number} options.height - Chart height (default: 300)
+ * @param {Object} options.margin - Chart margins (default: {top: 20, right: 30, bottom: 40, left: 60})
+ * @param {string} options.xLabel - X-axis label (default: 'File Size')
+ * @param {string} options.yLabel - Y-axis label (default: 'File Count')
+ * @param {string} options.barColor - Bar fill color (default: 'var(--primary-color)')
+ * @returns {string} HTML string for histogram chart
+ */
+export function createHistogram(bins, options = {}) {
+    const {
+        width = 500,
+        height = 240,
+        margin = { top: 20, right: 30, bottom: 60, left: 60 },
+        xLabel = 'File Size',
+        yLabel = 'File Count',
+        barColor = '#4a9eff'
+    } = options;
+    
+    if (!bins || bins.length === 0) {
+        return '<div class="empty-state">No file size data available</div>';
+    }
+    
+    const chartWidth = width - margin.left - margin.right;
+    const chartHeight = height - margin.top - margin.bottom;
+    const maxCount = Math.max(...bins.map(b => b.count));
+    
+    // Handle edge case where all bins are empty
+    if (maxCount === 0) {
+        return '<div class="empty-state">No files to display</div>';
+    }
+    
+    const barWidth = chartWidth / bins.length;
+    
+    // Build bars
+    const bars = bins.map((bin, index) => {
+        const barHeight = (bin.count / maxCount) * chartHeight;
+        const x = margin.left + (index * barWidth);
+        const y = margin.top + (chartHeight - barHeight);
+        
+        // Tooltip text
+        const tooltip = `${bin.label}: ${bin.count} files`;
+        const escapedTooltip = escapeHtml(tooltip);
+        
+        return `
+            <rect 
+                x="${x}" 
+                y="${y}" 
+                width="${barWidth - 2}" 
+                height="${barHeight}" 
+                fill="${barColor}" 
+                class="histogram-bar"
+                data-tooltip="${escapedTooltip}"
+            />
+            <text 
+                x="${x + barWidth / 2}" 
+                y="${margin.top + chartHeight + 15}" 
+                text-anchor="middle" 
+                class="histogram-label"
+                font-size="11"
+                transform="rotate(-45, ${x + barWidth / 2}, ${margin.top + chartHeight + 15})"
+            >${escapeHtml(bin.label)}</text>
+        `;
+    }).join('');
+    
+    // Y-axis scale (show ticks at nice intervals)
+    const yTicks = 5;
+    const yTickInterval = Math.ceil(maxCount / yTicks);
+    const yAxisLabels = [];
+    for (let i = 0; i <= yTicks; i++) {
+        const value = i * yTickInterval;
+        if (value <= maxCount) {
+            const y = margin.top + chartHeight - (value / maxCount * chartHeight);
+            yAxisLabels.push(`
+                <text x="${margin.left - 10}" y="${y}" text-anchor="end" alignment-baseline="middle" font-size="12" fill="#999">${value}</text>
+                <line x1="${margin.left - 5}" y1="${y}" x2="${margin.left}" y2="${y}" stroke="#ccc" />
+            `);
+        }
+    }
+    
+    const svg = `
+        <svg viewBox="0 0 ${width} ${height}" class="histogram-chart" role="img" aria-label="File size distribution histogram">
+            <!-- Y-axis -->
+            <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + chartHeight}" stroke="#333" />
+            ${yAxisLabels.join('')}
+            
+            <!-- X-axis -->
+            <line x1="${margin.left}" y1="${margin.top + chartHeight}" x2="${margin.left + chartWidth}" y2="${margin.top + chartHeight}" stroke="#333" />
+            
+            <!-- Bars -->
+            ${bars}
+            
+            <!-- Axis labels -->
+            <text x="${margin.left + chartWidth / 2}" y="${height - 5}" text-anchor="middle" font-size="12" font-weight="bold" fill="#999">${escapeHtml(xLabel)}</text>
+            <text x="${15}" y="${margin.top + chartHeight / 2}" text-anchor="middle" font-size="12" font-weight="bold" fill="#999" transform="rotate(-90, 15, ${margin.top + chartHeight / 2})">${escapeHtml(yLabel)}</text>
+        </svg>
+    `;
+    
+    return svg;
+}

@@ -2430,3 +2430,113 @@ span[data-onb-type]:hover {
         max-height: none;
     }
 }
+
+/* File Size Analysis Section */
+.file-size-section {
+    margin-top: 2rem;
+}
+
+.file-size-split-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 1200px) {
+    .file-size-split-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.file-size-controls {
+    margin: 1rem 0 1.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.file-size-controls label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.file-size-controls select {
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-color);
+    font-size: 0.875rem;
+    cursor: pointer;
+    min-width: 200px;
+}
+
+.file-size-controls select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+/* Histogram Chart */
+.histogram-chart {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.histogram-bar {
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.histogram-bar:hover {
+    opacity: 0.8;
+}
+
+.histogram-label {
+    fill: var(--text-secondary);
+    user-select: none;
+}
+
+/* Extension Breakdown Table */
+.extension-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.extension-table thead {
+    background: var(--surface-color);
+}
+
+.extension-table th {
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-color);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.extension-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.extension-table tbody tr {
+    transition: background 0.2s;
+}
+
+.extension-table tbody tr:hover {
+    background: var(--surface-hover);
+}
+
+.extension-table tbody tr.highlighted {
+    background: rgba(33, 150, 243, 0.1);
+}
+
+.table-footer {
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-align: center;
+}

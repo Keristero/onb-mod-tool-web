@@ -4,8 +4,8 @@ import * as parser from '../parser.mjs';
 import BaseTab from './base-tab.mjs';
 import { FilePreviewMixin } from './file-preview-mixin.mjs';
 import { PIE_CHART_RADIUS, PIE_CHART_CENTER, CHART_COLORS, CATEGORY_COLORS, ERROR_COLORS, STATUS_COLORS } from '../constants.mjs';
-import { calculateStatistics } from './utilities/statistics-calculator.mjs';
-import { createPieChart, createBarChart, initializeChartTooltips } from './utilities/chart-renderer.mjs';
+import { calculateStatistics, calculateFileSizeStatistics } from './utilities/statistics-calculator.mjs';
+import { createPieChart, createBarChart, createHistogram, initializeChartTooltips } from './utilities/chart-renderer.mjs';
 import { exportToCSV, exportToXML, exportDuplicationCSV, exportDuplicationXML } from './utilities/data-exporter.mjs';
 import { escapeHtml } from '../utils/html-utils.mjs';
 import { formatBytes } from '../utils/format-utils.mjs';
@@ -137,6 +137,9 @@ export default class StatisticsTab extends BaseTab {
         // Set up chart tooltips after rendering
         initializeChartTooltips();
         
+        // Set up file size filter handlers
+        this.setupFileSizeHandlers();
+        
         // Set up duplication table event handlers
         this.setupDuplicationHandlers();
     }
@@ -162,6 +165,11 @@ export default class StatisticsTab extends BaseTab {
         
         const stats = calculateStatistics(this.sessionMods);
         let html = this.renderStats(stats, 'session');
+        
+        // Add file size analysis if tracker is available
+        if (this.duplicationTracker) {
+            html += this.renderFileSizeSection(stats);
+        }
         
         // Add duplication report if tracker is available
         if (this.duplicationTracker) {
@@ -576,6 +584,70 @@ export default class StatisticsTab extends BaseTab {
         `;
     }
     
+    setupFileSizeHandlers() {
+        const sessionContent = this.sessionContainer.querySelector('#session-stats-content');
+        if (!sessionContent) return;
+        
+        // Category filter dropdown handler
+        const categoryFilter = sessionContent.querySelector('#file-size-category-filter');
+        if (categoryFilter) {
+            categoryFilter.addEventListener('change', (e) => {
+                const selectedCategory = e.target.value;
+                this.updateFileSizeDisplay(selectedCategory);
+            });
+        }
+    }
+    
+    updateFileSizeDisplay(category) {
+        if (!this.duplicationTracker) return;
+        
+        // Get files with metadata
+        const files = this.duplicationTracker.getFilesWithMetadata();
+        
+        // Create category map from session mods
+        const categoryMap = {};
+        this.sessionMods.forEach(mod => {
+            if (mod.parsed && mod.parsed.category) {
+                categoryMap[mod.id] = mod.parsed.category;
+            }
+        });
+        
+        // Recalculate statistics with filter
+        const fileSizeStats = calculateFileSizeStatistics(
+            files, 
+            categoryMap, 
+            { category: category || null }
+        );
+        
+        // Update only the relevant sections
+        const sessionContent = this.sessionContainer.querySelector('#session-stats-content');
+        if (!sessionContent) return;
+        
+        // Update stats cards
+        const statsOverview = sessionContent.querySelector('.file-size-section .stats-overview');
+        if (statsOverview) {
+            statsOverview.innerHTML = this.renderFileSizeCards(fileSizeStats);
+        }
+        
+        // Update histogram
+        const histogramContainer = sessionContent.querySelector('#file-size-histogram');
+        if (histogramContainer) {
+            histogramContainer.innerHTML = createHistogram(fileSizeStats.histogram);
+        }
+        
+        // Update extension breakdown
+        const extensionContainer = sessionContent.querySelector('.file-size-section .chart-container:nth-of-type(3)');
+        if (extensionContainer) {
+            const h3 = extensionContainer.querySelector('h3');
+            extensionContainer.innerHTML = '';
+            if (h3) extensionContainer.appendChild(h3);
+            extensionContainer.insertAdjacentHTML('beforeend', this.renderExtensionBreakdown(fileSizeStats.byExtension));
+        }
+        
+        // Re-initialize chart tooltips after update
+        initializeChartTooltips();
+    }
+    
     setupDuplicationHandlers() {
         const sessionContent = this.sessionContainer.querySelector('#session-stats-content');
         if (!sessionContent) return;
@@ -967,6 +1039,168 @@ export default class StatisticsTab extends BaseTab {
         } catch (error) {
             console.error('Failed to preview file:', error);
         }
+    }
+    
+    renderFileSizeSection(stats) {
+        if (!this.duplicationTracker) {
+            return '';
+        }
+        
+        // Get files with metadata from the tracker
+        const files = this.duplicationTracker.getFilesWithMetadata();
+        
+        if (files.length === 0) {
+            return `
+                <div class="stats-section">
+                    <h2>File Size Analysis</h2>
+                    <div class="empty-state">
+                        No file data available for analysis.
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Create category map from session mods
+        const categoryMap = {};
+        this.sessionMods.forEach(mod => {
+            if (mod.parsed && mod.parsed.category) {
+                categoryMap[mod.id] = mod.parsed.category;
+            }
+        });
+        
+        // Calculate file size statistics
+        const fileSizeStats = calculateFileSizeStatistics(files, categoryMap);
+        
+        // Get unique categories for filter dropdown
+        const categories = [...new Set(Object.values(categoryMap))].sort();
+        
+        return `
+            <div class="stats-section file-size-section" id="file-size-section">
+                <h2>File Size Analysis</h2>
+                
+                <div class="file-size-controls">
+                    <label for="file-size-category-filter">Filter by Category:</label>
+                    <select id="file-size-category-filter">
+                        <option value="">All Categories</option>
+                        ${categories.map(cat => `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`).join('')}
+                    </select>
+                </div>
+                
+                <div class="stats-overview">
+                    ${this.renderFileSizeCards(fileSizeStats)}
+                </div>
+                
+                <div class="file-size-split-layout">
+                    <div class="chart-container">
+                        <h3>File Size Distribution</h3>
+                        <div id="file-size-histogram">
+                            ${createHistogram(fileSizeStats.histogram)}
+                        </div>
+                    </div>
+                    
+                    <div class="chart-container">
+                        <h3>Size by File Extension</h3>
+                        ${this.renderExtensionBreakdown(fileSizeStats.byExtension)}
+                    </div>
+                </div>
+                
+                ${fileSizeStats.byCategory.length > 1 ? `
+                    <div class="chart-container full-width">
+                        <h3>Median File Size by Category</h3>
+                        ${this.renderCategoryComparison(fileSizeStats.byCategory)}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+    
+    renderFileSizeCards(fileSizeStats) {
+        const card = (title, value, subtitle = '') => `
+            <div class="stat-card">
+                <h3>${title}</h3>
+                <div class="stat-value">${value}</div>
+                ${subtitle ? `<div class="stat-subtitle">${subtitle}</div>` : ''}
+            </div>
+        `;
+        
+        const modeText = fileSizeStats.modStats.mode 
+            ? `${fileSizeStats.modStats.mode.label}`
+            : 'N/A';
+        
+        const modeMidpoint = fileSizeStats.modStats.mode
+            ? `~${formatBytes(fileSizeStats.modStats.mode.midpoint)}`
+            : '';
+        
+        return `
+            <div class="stats-grid">
+                ${card('Total Mods', fileSizeStats.modStats.totalMods.toLocaleString(), `${fileSizeStats.totalFiles.toLocaleString()} files`)}
+                ${card('Total Size', formatBytes(fileSizeStats.totalSize))}
+                ${card('Median Mod Size', formatBytes(fileSizeStats.modStats.median))}
+                ${card('Mean Mod Size', formatBytes(fileSizeStats.modStats.mean))}
+                ${card('Most Common Range', modeText, modeMidpoint)}
+            </div>
+        `;
+    }
+    
+    renderExtensionBreakdown(byExtension) {
+        if (byExtension.length === 0) {
+            return '<div class="empty-state">No extension data available</div>';
+        }
+        
+        // Show top 10 extensions by default
+        const displayLimit = 10;
+        const displayItems = byExtension.slice(0, displayLimit);
+        const hasMore = byExtension.length > displayLimit;
+        
+        const rows = displayItems.map((ext, index) => `
+            <tr class="${index < 5 ? 'highlighted' : ''}">
+                <td>${escapeHtml(ext.extension || '(no extension)')}</td>
+                <td>${formatBytes(ext.totalSize)}</td>
+                <td>${ext.count.toLocaleString()}</td>
+                <td>${ext.percentage.toFixed(1)}%</td>
+            </tr>
+        `).join('');
+        
+        return `
+            <table class="extension-table">
+                <thead>
+                    <tr>
+                        <th>Extension</th>
+                        <th>Total Size</th>
+                        <th>File Count</th>
+                        <th>% of Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+            ${hasMore ? `<div class="table-footer">Showing top ${displayLimit} of ${byExtension.length} extensions</div>` : ''}
+        `;
+    }
+    
+    renderCategoryComparison(byCategory) {
+        if (byCategory.length === 0) {
+            return '<div class="empty-state">No category data available</div>';
+        }
+        
+        const maxMedian = Math.max(...byCategory.map(c => c.median));
+        
+        const bars = byCategory.map(cat => {
+            const percent = maxMedian > 0 ? (cat.median / maxMedian * 100) : 0;
+            
+            return `
+                <div class="bar-item">
+                    <div class="bar-label" title="${escapeHtml(cat.category)} - ${cat.count} files">${escapeHtml(cat.category)}</div>
+                    <div class="bar-visual">
+                        <div class="bar-fill" style="width: ${percent}%; background: var(--primary-color)"></div>
+                        <span class="bar-count">${formatBytes(cat.median)}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        return `<div class="bar-chart">${bars}</div>`;
     }
     
     renderDuplicationReport() {
