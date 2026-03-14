@@ -36,13 +36,6 @@ jobs:
         run: |
           (cd src/DartLangModTool-master && git fetch origin master && git reset --hard origin/master)
       
-      - name: Upload DartLangModTool source
-        uses: actions/upload-artifact@v4
-        with:
-          name: DartLangModTool-master-source
-          path: src/DartLangModTool-master
-          retention-days: 90
-      
       - name: Check version and decide whether to build
         id: version_check
         run: |
