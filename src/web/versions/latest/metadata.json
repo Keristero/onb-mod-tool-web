@@ -1,7 +1,7 @@
 {
   "version": "1.0.10",
-  "buildDate": "2026-01-24T21:15:14Z",
-  "dartVersion": "Dart SDK version: 3.10.7 (stable) (Tue Dec 23 00:01:57 2025 -0800) on \"linux_x64\"",
+  "buildDate": "2026-03-14T20:26:02Z",
+  "dartVersion": "Dart SDK version: 3.11.0 (stable) (Fri Mar 6 15:00:43 2026 +0000) on \"linux_x64\"",
   "features": [
     "mod-analysis",
     "lua-parsing",
