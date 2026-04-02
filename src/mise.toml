@@ -64,9 +64,37 @@ fi
 VERSION=$(grep '"version"' "$LATEST_META" | head -1 | cut -d'"' -f4)
 echo "Processing version: ${VERSION}"
 
+# Resolve Lua source path across submodule layouts
+SOURCE_CANDIDATES=(
+    "DartLangModTool-master/lib/src/lua"
+    "DartLangModTool-master/lib/lua"
+    "DartLangModTool-master/src/lua"
+    "DartLangModTool-master/lua"
+    "DartLangModTool-master/lib/src/lua/visitors/bindings"
+)
+
+SOURCE_DIR=""
+for candidate in "${SOURCE_CANDIDATES[@]}"; do
+    if [ -d "$candidate" ]; then
+        SOURCE_DIR="$candidate"
+        break
+    fi
+done
+
+if [ -z "$SOURCE_DIR" ]; then
+    echo "Error: Could not locate Lua source directory under DartLangModTool-master"
+    echo "Checked candidates:"
+    printf '  - %s\n' "${SOURCE_CANDIDATES[@]}"
+    echo "Available submodule directories (depth 3):"
+    find DartLangModTool-master -maxdepth 3 -type d 2>/dev/null | head -100 || true
+    exit 1
+fi
+
+echo "Using Lua source directory: ${SOURCE_DIR}"
+
 # Run extraction script to add Lua globals to metadata.json in latest/
 node ../scripts/extract_globals.js \
-  --source="DartLangModTool-master/lib/src/lua" \
+    --source="${SOURCE_DIR}" \
   --output="${LATEST_META}"
 
 echo "✓ Lua globals extracted and added to ${LATEST_META}"

@@ -27,10 +27,28 @@ const parseArgs = (argv) =>
     return acc;
   }, {});
 
+const resolveDefaultSourceDir = () => {
+  const candidates = [
+    'src/DartLangModTool-master/lib/src/lua',
+    'DartLangModTool-master/lib/src/lua',
+    'src/DartLangModTool-master/lib/lua',
+    'DartLangModTool-master/lib/lua',
+    'src/DartLangModTool-master/src/lua',
+    'DartLangModTool-master/src/lua',
+    'src/DartLangModTool-master/lua',
+    'DartLangModTool-master/lua',
+    'src/DartLangModTool-master/lib/src/lua/visitors/bindings',
+    'DartLangModTool-master/lib/src/lua/visitors/bindings'
+  ];
+
+  const existing = candidates.find((candidate) => fs.existsSync(candidate));
+  return existing || candidates[0];
+};
+
 const config = (() => {
   const args = parseArgs(process.argv);
   return {
-    sourceDir: args.source || 'src/DartLangModTool-master/lib/src/lua',
+    sourceDir: args.source || resolveDefaultSourceDir(),
     outputPath: args.output || 'src/web/versions/latest/metadata.json'
   };
 })();
