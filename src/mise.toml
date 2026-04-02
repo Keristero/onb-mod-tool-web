@@ -122,7 +122,14 @@ else
     exit 1
 fi
 
-$NIX_CMD build -f default.nix wasm -o result-wasm
+# CI runners need network during buildPhase for "dart pub get".
+# Disable sandbox there so pub.dev is reachable from the derivation.
+NIX_BUILD_ARGS=(build -f default.nix wasm -o result-wasm)
+if [ "${CI:-}" = "true" ]; then
+    NIX_BUILD_ARGS+=(--option sandbox false)
+fi
+
+$NIX_CMD "${NIX_BUILD_ARGS[@]}"
 
 # Create versions directory structure
 mkdir -p web/versions/latest
