@@ -64,13 +64,32 @@ fi
 VERSION=$(grep '"version"' "$LATEST_META" | head -1 | cut -d'"' -f4)
 echo "Processing version: ${VERSION}"
 
+# Skip Lua source scanning by default (can be re-enabled with SKIP_LUA_SCAN=false)
+if [ "${SKIP_LUA_SCAN:-true}" = "true" ]; then
+    echo "Skipping Lua source scan (SKIP_LUA_SCAN=${SKIP_LUA_SCAN:-true})"
+    node -e '
+const fs = require("fs");
+const p = process.argv[1];
+const data = JSON.parse(fs.readFileSync(p, "utf8"));
+data.lua = data.lua || { functions: [], tables: {}, variables: [], objectMethods: {}, methodSharing: {} };
+fs.writeFileSync(p, JSON.stringify(data, null, 2) + "\n");
+' "$LATEST_META"
+    echo "✓ Wrote placeholder lua metadata to ${LATEST_META}"
+    exit 0
+fi
+
 # Resolve Lua source path across submodule layouts
 SOURCE_CANDIDATES=(
+    "DartLangModTool-master/web"
+    "DartLangModTool-master/web/runtime"
+    "DartLangModTool-master/web/bindings"
     "DartLangModTool-master/lib/src/lua"
     "DartLangModTool-master/lib/lua"
     "DartLangModTool-master/src/lua"
     "DartLangModTool-master/lua"
     "DartLangModTool-master/lib/src/lua/visitors/bindings"
+    "DartLangModTool-master/bin/runtime"
+    "DartLangModTool-master/bin/runtime/bindings"
 )
 
 SOURCE_DIR=""

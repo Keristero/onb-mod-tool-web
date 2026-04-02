@@ -29,6 +29,12 @@ const parseArgs = (argv) =>
 
 const resolveDefaultSourceDir = () => {
   const candidates = [
+    'src/DartLangModTool-master/web',
+    'DartLangModTool-master/web',
+    'src/DartLangModTool-master/web/runtime',
+    'DartLangModTool-master/web/runtime',
+    'src/DartLangModTool-master/web/bindings',
+    'DartLangModTool-master/web/bindings',
     'src/DartLangModTool-master/lib/src/lua',
     'DartLangModTool-master/lib/src/lua',
     'src/DartLangModTool-master/lib/lua',
@@ -38,7 +44,11 @@ const resolveDefaultSourceDir = () => {
     'src/DartLangModTool-master/lua',
     'DartLangModTool-master/lua',
     'src/DartLangModTool-master/lib/src/lua/visitors/bindings',
-    'DartLangModTool-master/lib/src/lua/visitors/bindings'
+    'DartLangModTool-master/lib/src/lua/visitors/bindings',
+    'src/DartLangModTool-master/bin/runtime',
+    'DartLangModTool-master/bin/runtime',
+    'src/DartLangModTool-master/bin/runtime/bindings',
+    'DartLangModTool-master/bin/runtime/bindings'
   ];
 
   const existing = candidates.find((candidate) => fs.existsSync(candidate));
@@ -664,7 +674,8 @@ const findSourceFiles = (sourceDir) => {
   const files = findDartFiles(sourceDir);
   
   if (files.length === 0) {
-    throw new Error(`No .dart files found in ${sourceDir}`);
+    console.warn(`Warning: No .dart files found in ${sourceDir}`);
+    return [];
   }
   
   console.log(`Found ${files.length} Dart files to process\n`);
@@ -712,6 +723,10 @@ const main = () => {
   // Validate and prepare
   validateSourceDirectory(config.sourceDir);
   const files = findSourceFiles(config.sourceDir);
+
+  if (files.length === 0) {
+    console.warn('No Dart source files discovered; writing empty lua metadata.');
+  }
   
   // Process files
   const collector = createGlobalsCollector();
