@@ -92,6 +92,10 @@ jobs:
         with:
           install: true
           cache: true
+
+      - name: Install Nix
+        if: steps.version_check.outputs.should_build == 'true'
+        uses: cachix/install-nix-action@v30
       
       - name: Setup Node.js
         if: steps.version_check.outputs.should_build == 'true'
