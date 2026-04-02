@@ -139,8 +139,16 @@ chmod -f u+w web/versions/latest/* 2>/dev/null || true
 
 # Copy WASM artifacts
 echo "Copying artifacts to web/versions/latest/..."
-# Resolve the actual nix store path and copy files
-WASM_PATH="$HOME/.nix-portable/nix/store/$(readlink result-wasm | sed 's|/nix/store/||')"
+# Resolve nix output path for both native Nix and nix-portable layouts
+WASM_PATH="$(readlink -f result-wasm || true)"
+if [ -z "$WASM_PATH" ] || [ ! -d "$WASM_PATH" ]; then
+    RAW_LINK="$(readlink result-wasm || true)"
+    ALT_PATH="$HOME/.nix-portable/nix/store/$(basename "$RAW_LINK")"
+    if [ -d "$ALT_PATH" ]; then
+        WASM_PATH="$ALT_PATH"
+    fi
+fi
+
 if [ -f "$WASM_PATH/onb_mod_file.wasm" ]; then
     cp "$WASM_PATH/onb_mod_file.wasm" web/versions/latest/
     cp "$WASM_PATH/onb_mod_file.mjs" web/versions/latest/
@@ -150,6 +158,7 @@ if [ -f "$WASM_PATH/onb_mod_file.wasm" ]; then
     chmod u+w web/versions/latest/*
 else
     echo "Error: WASM files not found at $WASM_PATH"
+    echo "result-wasm link target: $(readlink result-wasm 2>/dev/null || echo '<missing>')"
     exit 1
 fi
 
