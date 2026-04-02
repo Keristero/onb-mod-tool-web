@@ -50,7 +50,7 @@ in {
       {
         "version": "1.0.0",
         "buildDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-        "dartVersion": "$(dart --version 2>&1 | head -n1)",
+        "dartVersion": "$(dart --version 2>&1 | head -n1 | sed 's/"/\\"/g')",
         "features": [
           "mod-analysis",
           "lua-parsing",

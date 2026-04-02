@@ -70,10 +70,20 @@ if [ "${SKIP_LUA_SCAN:-true}" = "true" ]; then
     node -e '
 const fs = require("fs");
 const p = process.argv[1];
-const data = JSON.parse(fs.readFileSync(p, "utf8"));
+let data;
+try {
+    data = JSON.parse(fs.readFileSync(p, "utf8"));
+} catch (err) {
+    console.warn("Warning: metadata.json is invalid JSON; rebuilding minimal metadata for CI");
+    data = {
+        version: process.argv[2] || "1.0.0",
+        buildDate: new Date().toISOString(),
+        features: ["mod-analysis", "lua-parsing", "json-output"]
+    };
+}
 data.lua = data.lua || { functions: [], tables: {}, variables: [], objectMethods: {}, methodSharing: {} };
 fs.writeFileSync(p, JSON.stringify(data, null, 2) + "\n");
-' "$LATEST_META"
+' "$LATEST_META" "$VERSION"
     echo "✓ Wrote placeholder lua metadata to ${LATEST_META}"
     exit 0
 fi
