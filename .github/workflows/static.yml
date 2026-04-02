@@ -101,8 +101,8 @@ jobs:
       
       - name: Build WASM and extract Lua globals
         if: steps.version_check.outputs.should_build == 'true'
+        working-directory: src
         run: |
-          cd src
           mise run build:all
       
       - name: Verify build artifacts
