@@ -1,6 +1,5 @@
 // Results Tab - Displays JSON analysis results
 
-import * as parser from '../parser.mjs';
 import BaseTab from './base-tab.mjs';
 import { FilePreviewMixin } from './file-preview-mixin.mjs';
 import { IssueManager, findBestPathMatch } from './issue-manager.mjs';
@@ -8,8 +7,9 @@ import { addClass } from '../utils/dom-helpers.mjs';
 import { createElement, escapeHtml } from '../utils/html-utils.mjs';
 
 export default class ResultsTab extends BaseTab {
-    constructor() {
+    constructor(app = null) {
         super();
+        this.app = app;
         // Mix in file preview functionality
         Object.assign(this, FilePreviewMixin);
         this.issueManager = new IssueManager();
@@ -22,9 +22,9 @@ export default class ResultsTab extends BaseTab {
                 <div class="results-header">
                     <h2>Analysis Results</h2>
                     <div class="results-actions">
-                        <input type="text" id="json-search" class="filter-input" placeholder="Search JSON..." />
                         <button id="copy-json" class="btn btn-secondary">Copy JSON</button>
                         <button id="export-json" class="btn btn-secondary">Export JSON</button>
+                        <button id="export-session-json" class="btn btn-secondary">Export Session JSON</button>
                     </div>
                 </div>
                 <div class="results-content">
@@ -37,9 +37,9 @@ export default class ResultsTab extends BaseTab {
         `;
         
         // Event listeners
-        this.addEventListener(this.querySelector('#json-search'), 'input', (e) => this.searchJson(e.target.value));
         this.addEventListener(this.querySelector('#copy-json'), 'click', () => this.copyJson());
         this.addEventListener(this.querySelector('#export-json'), 'click', () => this.exportJson());
+        this.addEventListener(this.querySelector('#export-session-json'), 'click', () => this.exportSessionJson());
     }
     
     async onFileProcessed(mod) {
@@ -589,28 +589,6 @@ export default class ResultsTab extends BaseTab {
         return processedLines.join('\n');
     }
     
-    searchJson(query) {
-        if (!this.currentMod || !query) {
-            this.render();
-            return;
-        }
-        
-        const results = parser.searchJson(this.currentMod.result.data, query);
-        
-        // Highlight matching items
-        const jsonView = this.container.querySelector('#json-view');
-        const keys = jsonView.querySelectorAll('.json-key');
-        
-        keys.forEach(key => {
-            const text = key.textContent.replace(/"/g, '');
-            if (text.toLowerCase().includes(query.toLowerCase())) {
-                key.style.backgroundColor = 'rgba(33, 150, 243, 0.3)';
-            } else {
-                key.style.backgroundColor = '';
-            }
-        });
-    }
-    
     copyJson() {
         if (!this.currentMod) return;
         
@@ -629,6 +607,31 @@ export default class ResultsTab extends BaseTab {
         
         const data = JSON.stringify(this.currentMod.result.data, null, 2);
         this.downloadFile(`${this.currentMod.parsed.id}_analysis.json`, data, 'application/json');
+    }
+    
+    async exportSessionJson() {
+        if (!this.app || !this.app.processedMods || this.app.processedMods.length === 0) return;
+        
+        const zip = new JSZip();
+        
+        for (const mod of this.app.processedMods) {
+            if (!mod.result?.data) continue;
+            
+            const uuid = mod.parsed?.uuid || mod.parsed?.id || 'unknown';
+            const safeName = uuid.replace(/[^a-zA-Z0-9._@-]/g, '_');
+            const data = JSON.stringify(mod.result.data, null, 2);
+            zip.file(`${safeName}.json`, data);
+        }
+        
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'session_manifests.zip';
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        this.showButtonSuccess(this.querySelector('#export-session-json'), '✓ Exported!');
     }
     
     setupJsonFileHovers() {

@@ -33,7 +33,7 @@ class ModAnalyzer {
         
         // Tab modules
         this.tabs = {
-            results: new ResultsTab(),
+            results: new ResultsTab(this),
             files: new FileBrowserTab(),
             statistics: new StatisticsTab(this.duplicationTracker),
             dependencies: new DependenciesTab(this) // Pass app reference

@@ -333,53 +333,6 @@ export function createJsonTree(obj, key = null, level = 0) {
 /**
  * Search JSON object for matching keys or values
  */
-export function searchJson(obj, query) {
-    const results = [];
-    const lowerQuery = query.toLowerCase();
-    
-    function search(item, path = []) {
-        if (item === null || item === undefined) return;
-        
-        if (typeof item === 'object') {
-            for (const [key, value] of Object.entries(item)) {
-                const currentPath = [...path, key];
-                
-                // Check if key matches
-                if (key.toLowerCase().includes(lowerQuery)) {
-                    results.push({
-                        path: currentPath.join('.'),
-                        key,
-                        value
-                    });
-                }
-                
-                // Check if value matches (for primitives)
-                if (typeof value === 'string' && value.toLowerCase().includes(lowerQuery)) {
-                    results.push({
-                        path: currentPath.join('.'),
-                        key,
-                        value
-                    });
-                } else if (typeof value === 'number' && value.toString().includes(query)) {
-                    results.push({
-                        path: currentPath.join('.'),
-                        key,
-                        value
-                    });
-                }
-                
-                // Recurse for nested objects
-                if (typeof value === 'object') {
-                    search(value, currentPath);
-                }
-            }
-        }
-    }
-    
-    search(obj);
-    return results;
-}
-
 /**
  * Constants for invalid field values
  */
