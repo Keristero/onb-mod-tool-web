@@ -1,0 +1,63 @@
+name: Build Native Binaries
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: mod_tool-linux-x86_64
+            binary: mod_tool
+          - os: windows-latest
+            artifact: mod_tool-windows-x86_64
+            binary: mod_tool.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ssh-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
+
+      - name: Update submodule to latest
+        run: |
+          cd src/DartLangModTool-master
+          git fetch origin master
+          git reset --hard origin/master
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep '^version:' src/DartLangModTool-master/pubspec.yaml | sed 's/version: *//' | tr -d '\r\n')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Mod tool version: $VERSION"
+
+      - name: Setup Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Build native executable
+        shell: bash
+        run: |
+          cd src/DartLangModTool-master
+          dart pub get
+          dart compile exe bin/main.dart -o ../../${{ matrix.binary }}
+          echo "Binary built:"
+          ls -lh ../../${{ matrix.binary }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-v${{ steps.version.outputs.version }}
+          path: ${{ matrix.binary }}
+          retention-days: 90
