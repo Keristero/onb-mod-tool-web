@@ -14,6 +14,9 @@ jobs:
           - os: ubuntu-latest
             artifact: mod_tool-linux-x86_64
             binary: mod_tool
+          - os: ubuntu-24.04-arm
+            artifact: mod_tool-linux-arm64
+            binary: mod_tool
           - os: windows-latest
             artifact: mod_tool-windows-x86_64
             binary: mod_tool.exe
