@@ -7,6 +7,7 @@ import ResultsTab from './tabs/results-tab.mjs';
 import FileBrowserTab from './tabs/file-browser-tab.mjs';
 import StatisticsTab from './tabs/statistics-tab.mjs';
 import DependenciesTab from './tabs/dependencies-tab.mjs';
+import SearchTab from './tabs/search-tab.mjs';
 import { addClass, removeClass, toggleClass } from './utils/dom-helpers.mjs';
 import { createElement } from './utils/html-utils.mjs';
 import { DuplicationTracker } from './duplication-tracker.mjs';
@@ -36,7 +37,8 @@ class ModAnalyzer {
             results: new ResultsTab(this),
             files: new FileBrowserTab(),
             statistics: new StatisticsTab(this.duplicationTracker),
-            dependencies: new DependenciesTab(this) // Pass app reference
+            dependencies: new DependenciesTab(this), // Pass app reference
+            search: new SearchTab(this)
         };
         
         this.init();
