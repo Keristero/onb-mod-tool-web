@@ -77,8 +77,19 @@
     "description": "Production release v1.0.2"
   },
   {
-    "version": "v1.0.11",
+    "version": "v1.0.13",
     "latest": true,
+    "buildDate": "2026-04-29T06:22:15Z",
+    "features": [
+      "mod-analysis",
+      "lua-parsing",
+      "json-output"
+    ],
+    "description": "Production release v1.0.13"
+  },
+  {
+    "version": "v1.0.11",
+    "latest": false,
     "buildDate": "2026-04-02T22:04:51Z",
     "features": [
       "mod-analysis",
