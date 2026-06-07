@@ -44,14 +44,6 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Mod tool version: $VERSION"
 
-      - name: Override puredartlua path dependency for CI
-        shell: bash
-        run: |
-          cat > src/DartLangModTool-master/pubspec_overrides.yaml << 'EOF'
-          dependency_overrides:
-            puredartlua: ^1.0.8
-          EOF
-
       - name: Setup Dart SDK
         uses: dart-lang/setup-dart@v1
         with:
